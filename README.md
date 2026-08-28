@@ -99,7 +99,11 @@ algumas, o resto vem do BCB.
 1. **Banco** — crie um projeto no [Neon](https://neon.tech) (free tier) e copie a connection string.
 2. **Google OAuth** — Google Cloud Console → Credentials → OAuth client ID → Web. Redirect URIs:
    - `http://localhost:3000/api/auth/callback/google`
-   - `https://<seu-app>.vercel.app/api/auth/callback/google`
+   - `https://<dominio-real>.vercel.app/api/auth/callback/google`
+
+   O domínio tem que ser copiado do painel da Vercel depois do primeiro deploy, não deduzido do
+   nome do projeto: se o subdomínio já estiver tomado por outra pessoa, a Vercel entrega um nome
+   diferente do que você pediu.
 3. **Env** — copie `.env.example` para `.env` e preencha. `AUTH_SECRET` e `CRON_SECRET` já vêm
    gerados no `.env` local.
 4. **Migração e seed**:
