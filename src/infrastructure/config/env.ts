@@ -22,7 +22,6 @@ const envSchema = z.object({
     .refine((emails) => emails.length > 0, "ALLOWED_EMAILS não pode ficar vazio"),
   /** Segredo do Bearer da rota de taxas. 32 hex = 16 bytes de entropia. */
   CRON_SECRET: z.string().min(32),
-  NEXT_PUBLIC_APP_URL: z.url().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 });
 

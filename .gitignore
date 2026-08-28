@@ -21,9 +21,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env — dados financeiros pessoais e segredos, nunca versionar
-.env
-.env*.local
+# env — segredos e string de conexão do banco, nunca versionar.
+# Pega qualquer .env (inclusive .env.production), menos o exemplo sem valores.
+.env*
+!.env.example
 
 # vercel
 .vercel
