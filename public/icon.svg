@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Plano financeiro">
+  <rect width="512" height="512" rx="112" fill="#5b5fc7" />
+  <!-- Linha ascendente: reserva e caixa crescendo até a quitação. -->
+  <path
+    d="M112 344 L200 268 L272 312 L400 176"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="34"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M336 176 L400 176 L400 240" fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

@@ -1,0 +1,88 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+import { PaymentMethod } from "@/core/domain/budget/budget-category.entity";
+import { reais } from "@/core/domain/shared/money";
+import { monthOfISODate } from "@/core/domain/shared/month";
+import { TransactionKind } from "@/core/domain/transaction/transaction.entity";
+
+import { invalidInput, resolvePlanContext, unauthorized } from "./plan-context";
+
+const createSchema = z.object({
+  date: z.iso.date(),
+  description: z.string().trim().min(1).max(120),
+  /** Valor em reais, como digitado no formulário. Sempre positivo. */
+  amount: z.number().positive().max(1_000_000),
+  kind: z.enum(["EXPENSE", "EXTRA_INCOME", "GOAL"]).default("EXPENSE"),
+  categoryId: z.string().min(1).nullable().default(null),
+  goalId: z.string().min(1).nullable().default(null),
+  paymentMethod: z.enum(["MEAL_CARD", "CASH"]).default("CASH"),
+});
+
+export async function createTransaction(input: z.input<typeof createSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = createSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  const { container, planId } = ctx;
+  const data = parsed.data;
+
+  // Gasto do orçamento precisa de categoria; meta precisa de meta.
+  if (data.kind === TransactionKind.EXPENSE && !data.categoryId) {
+    return { ok: false as const, error: "Escolha uma categoria." };
+  }
+  if (data.kind === TransactionKind.GOAL && !data.goalId) {
+    return { ok: false as const, error: "Escolha a meta." };
+  }
+
+  // Categoria e meta têm que ser do próprio plano — o id vem do cliente.
+  if (data.categoryId) {
+    const category = await container.repos.categories.findById(data.categoryId);
+    if (!category || category.planId !== planId) return invalidInput;
+  }
+  if (data.goalId) {
+    const goal = await container.repos.goals.findById(data.goalId);
+    if (!goal || goal.planId !== planId) return invalidInput;
+  }
+
+  await container.repos.transactions.save({
+    id: container.ids.generate(),
+    planId,
+    date: data.date,
+    description: data.description,
+    kind: data.kind as TransactionKind,
+    categoryId: data.kind === TransactionKind.EXPENSE ? data.categoryId : null,
+    goalId: data.kind === TransactionKind.GOAL ? data.goalId : null,
+    paymentMethod: data.paymentMethod as PaymentMethod,
+    amount: reais(data.amount),
+    createdAt: container.clock.now(),
+  });
+
+  revalidatePath("/mes");
+  revalidatePath("/resumo");
+  return { ok: true as const, month: monthOfISODate(data.date) };
+}
+
+const deleteSchema = z.object({ id: z.string().min(1) });
+
+export async function deleteTransaction(input: z.input<typeof deleteSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = deleteSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  // O id vem do cliente: sem esta conferência, daria para apagar lançamento
+  // de outro plano só chutando um uuid.
+  const existing = await ctx.container.repos.transactions.findById(parsed.data.id);
+  if (!existing || existing.planId !== ctx.planId) return invalidInput;
+
+  await ctx.container.repos.transactions.delete(parsed.data.id);
+  revalidatePath("/mes");
+  revalidatePath("/resumo");
+  return { ok: true as const };
+}
