@@ -120,6 +120,41 @@ describe("projectPlan — paridade com a planilha", () => {
   });
 });
 
+describe("projectPlan — conselho de amortização", () => {
+  it("com as taxas de hoje, manda continuar investindo", () => {
+    const result = projectPlan(spreadsheetProjectionInput());
+    const advice = result.amortizationAdvice;
+
+    expect(advice).not.toBeNull();
+    expect(advice!.verdict).toBe("INVEST");
+    // 7,66% de contrato + ~2,07% de TR: o custo real não é o número do contrato.
+    expect(advice!.debtAnnualCost).toBeGreaterThan(0.09);
+    expect(advice!.referenceRateAnnual).toBeGreaterThan(0.02);
+  });
+
+  it("vira para amortizar quando o rendimento cai abaixo do custo da dívida", () => {
+    const base = spreadsheetProjectionInput();
+    const result = projectPlan({
+      ...base,
+      yieldPolicy: { ...base.yieldPolicy, manualAnnualNet: 0.06 },
+    });
+
+    expect(result.amortizationAdvice!.verdict).toBe("AMORTIZE");
+  });
+
+  it("no mês do buraco o veredito segue, mas sem valor a amortizar", () => {
+    const base = spreadsheetProjectionInput();
+    // Em dez/2026 o caixa fura: a regra continua valendo, o dinheiro é que não existe.
+    const result = projectPlan({
+      ...base,
+      options: { ...base.options, asOfDate: "2026-12-15" },
+    });
+
+    expect(result.amortizationAdvice).not.toBeNull();
+    expect(result.amortizationAdvice!.amountToAmortize).toBe(reais(0));
+  });
+});
+
 describe("projectPlan — sensibilidade às premissas", () => {
   it("CDI menor atrasa a quitação", () => {
     const base = spreadsheetProjectionInput();

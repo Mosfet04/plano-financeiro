@@ -2,6 +2,7 @@ import { AlertTriangle, CalendarClock, PiggyBank } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { resolvePlanContext } from "@/app/actions/plan-context";
+import { AmortizationAlert } from "@/components/resumo/amortization-alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Stat } from "@/components/ui/stat";
@@ -58,6 +59,8 @@ export default async function ResumoPage() {
           </div>
         </div>
       ) : null}
+
+      <AmortizationAlert advice={projection.amortizationAdvice} />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat

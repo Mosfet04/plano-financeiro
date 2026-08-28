@@ -1,5 +1,6 @@
 import type { MarketRatesSnapshot } from "@/core/domain/market/market-rates.entity";
 import { RateSource } from "@/core/domain/market/market-rates.entity";
+import type { AmortizationVerdict } from "@/core/domain/projection/amortization-advice";
 import { projectPlan } from "@/core/domain/projection/project-plan";
 import type { Cents } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
@@ -36,6 +37,13 @@ export interface ProjectionImpact {
   readonly minCashAfter: Cents;
   readonly netAnnualYieldBefore: number;
   readonly netAnnualYieldAfter: number;
+  /**
+   * Veredito sobre amortizar antes e depois do snapshot. A virada é o evento
+   * que a rotina semanal existe para pegar.
+   */
+  readonly amortizationBefore: AmortizationVerdict | null;
+  readonly amortizationAfter: AmortizationVerdict | null;
+  readonly amortizationFlipped: boolean;
 }
 
 export interface RefreshMarketRatesOutput {
@@ -130,6 +138,9 @@ export class RefreshMarketRatesUseCase {
       buildProjectionInput({ ...plan, rates: current }, today, DEFAULT_HORIZON_MONTHS)
     );
 
+    const amortizationBefore = before.amortizationAdvice?.verdict ?? null;
+    const amortizationAfter = after.amortizationAdvice?.verdict ?? null;
+
     return {
       payoffMonthBefore: before.payoffMonth,
       payoffMonthAfter: after.payoffMonth,
@@ -137,6 +148,12 @@ export class RefreshMarketRatesUseCase {
       minCashAfter: after.minCash,
       netAnnualYieldBefore: before.netAnnualYield,
       netAnnualYieldAfter: after.netAnnualYield,
+      amortizationBefore,
+      amortizationAfter,
+      amortizationFlipped:
+        amortizationBefore !== null &&
+        amortizationAfter !== null &&
+        amortizationBefore !== amortizationAfter,
     };
   }
 }

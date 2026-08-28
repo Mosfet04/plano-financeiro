@@ -30,6 +30,7 @@ import {
   type YearMonth,
 } from "../shared/month";
 import { interestOn, monthlyInterestRate, priceInstallment, sacAmortization } from "./amortization";
+import { evaluateAmortization, type AmortizationAdvice } from "./amortization-advice";
 import { plrGross, plrNet } from "./plr-tax";
 import { investmentAnnualNet, monthlyFromAnnual, netAnnualYield } from "./yield";
 
@@ -105,6 +106,11 @@ export interface ProjectionSummary {
    */
   readonly monthlyTopUpToFixHole: Cents;
   readonly netAnnualYield: number;
+  /**
+   * Vale tirar do caixa e amortizar hoje? Nulo quando não há dívida ou não há
+   * caixa livre — aviso sem ação possível é barulho.
+   */
+  readonly amortizationAdvice: AmortizationAdvice | null;
 }
 
 function sumRecurring(items: readonly RecurringItem[], month: YearMonth, group: ItemGroup): Cents {
@@ -374,6 +380,25 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
       )
     : ZERO;
 
+  // A decisão é sobre o dinheiro de hoje, não sobre o do primeiro mês do plano:
+  // usa a linha do mês corrente, ou a primeira quando a projeção começa à frente.
+  const currentMonth = monthOfISODate(input.options.asOfDate);
+  const currentRow = months.find((month) => month.month === currentMonth) ?? months[0];
+
+  const amortizationAdvice =
+    input.financing && currentRow
+      ? evaluateAmortization({
+          netAnnualYield: annualYield,
+          financingAnnualInterest: input.financing.annualInterest,
+          referenceRateMonthly: input.rates?.referenceRateMonthly ?? null,
+          // A TR corrige o saldo devedor exista ou não no modelo de projeção:
+          // deixá-la fora da comparação faria o aviso disparar tarde demais.
+          includeReferenceRate: true,
+          availableCash: currentRow.payoffCash,
+          remainingDebt: currentRow.debt,
+        })
+      : null;
+
   return {
     months,
     payoffMonth: payoff?.month ?? null,
@@ -384,5 +409,6 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
     costOfLivingAfterMove,
     monthlyTopUpToFixHole,
     netAnnualYield: annualYield,
+    amortizationAdvice,
   };
 }

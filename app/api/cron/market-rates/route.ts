@@ -120,6 +120,11 @@ async function handle(request: NextRequest) {
           menorCaixaDepois: formatBRL(impact.minCashAfter),
           rendimentoAntes: impact.netAnnualYieldBefore,
           rendimentoDepois: impact.netAnnualYieldAfter,
+          // A virada é o evento que a rotina existe para pegar: o dia em que
+          // o CDI cai abaixo do custo da dívida e amortizar passa a valer.
+          amortizarAntes: impact.amortizationBefore,
+          amortizarDepois: impact.amortizationAfter,
+          viradaDaDecisao: impact.amortizationFlipped,
         }
       : null,
   });
