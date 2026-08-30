@@ -18,7 +18,12 @@ import {
 import { buildSpreadsheetPlan } from "./seed-data";
 
 /**
- * Cria o usuário e o plano inicial com os dados reais da planilha de agosto/2026.
+ * Carrega o plano da planilha de agosto/2026 para o DONO do app — o primeiro
+ * e-mail de `ALLOWED_EMAILS`.
+ *
+ * É o único plano que vem de script. Todo mundo mais ganha um plano vazio no
+ * primeiro login, pelo evento `createUser` do Auth.js, e preenche em
+ * `/premissas`; ninguém precisa de terminal para entrar.
  *
  * Idempotente: se já existir plano para o e-mail, não faz nada. Para recomeçar
  * do zero, apague o plano (as tabelas filhas caem por cascade).

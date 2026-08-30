@@ -21,7 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AppShell
-      userName={session.user.email ?? "Você"}
+      userName={session.user.name ?? session.user.email ?? "Você"}
       today={ctx.container.clock.today()}
       signOutAction={signOutAction}
       categories={categories

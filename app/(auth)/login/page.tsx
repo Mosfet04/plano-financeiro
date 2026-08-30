@@ -23,13 +23,14 @@ export default async function LoginPage({
           </span>
           <h1 className="text-xl font-semibold">Entrar</h1>
           <p className="text-fg-muted text-sm">
-            Acesso restrito à conta autorizada. Qualquer outra é recusada no login.
+            Acesso restrito às contas convidadas. Qualquer outra é recusada no login.
           </p>
         </div>
 
         {error ? (
           <p className="rounded-control bg-danger-bg text-danger mb-4 px-3 py-2 text-sm">
-            Não foi possível entrar com essa conta.
+            Não foi possível entrar com essa conta. Se você deveria ter acesso, peça para incluírem
+            seu e-mail.
           </p>
         ) : null}
 

@@ -68,15 +68,22 @@ novo (a tabela é append-only) e devolve o **impacto na projeção**, não um "o
 
 ```json
 {
-  "impacto": {
-    "quitacaoAntes": "set/2030",
-    "quitacaoDepois": "out/2030",
-    "mudouAQuitacao": true,
-    "menorCaixaAntes": "R$ -2.435,52",
-    "menorCaixaDepois": "R$ -2.512,10"
-  }
+  "impactos": [
+    {
+      "plano": "Plano de Mateus",
+      "quitacaoAntes": "set/2030",
+      "quitacaoDepois": "out/2030",
+      "mudouAQuitacao": true,
+      "menorCaixaAntes": "R$ -2.435,52",
+      "menorCaixaDepois": "R$ -2.512,10"
+    }
+  ]
 }
 ```
+
+O snapshot de taxas é **um só para todo mundo** — `market_rates` não tem `planId` de
+propósito, a Selic é a mesma para todos. O que é por pessoa é o impacto: o mesmo CDI mexe na
+quitação de cada plano de um jeito, então a rotina devolve uma entrada por plano.
 
 Isso só mexe na projeção porque a política de rendimento vem `CDI_LINKED` por padrão. No modo
 `MANUAL` o snapshot é gravado, mas a conta não muda.
@@ -104,6 +111,7 @@ algumas, o resto vem do BCB.
    O domínio tem que ser copiado do painel da Vercel depois do primeiro deploy, não deduzido do
    nome do projeto: se o subdomínio já estiver tomado por outra pessoa, a Vercel entrega um nome
    diferente do que você pediu.
+
 3. **Env** — copie `.env.example` para `.env` e preencha. `AUTH_SECRET` e `CRON_SECRET` já vêm
    gerados no `.env` local.
 4. **Migração e seed**:
@@ -112,8 +120,9 @@ algumas, o resto vem do BCB.
 npm run db:migrate && npm run db:seed
 ```
 
-O seed cria o usuário do `ALLOWED_EMAILS` e o plano com os dados reais da planilha. É idempotente:
-rodar de novo com plano existente não faz nada.
+O seed cria o usuário do **primeiro** e-mail de `ALLOWED_EMAILS` e o plano com os dados reais da
+planilha. É idempotente: rodar de novo com plano existente não faz nada. É o único plano que vem
+de script — os outros nascem vazios no primeiro login (veja [Multiusuário](#multiusuário)).
 
 5. **Primeiro snapshot de taxas**:
 
@@ -139,6 +148,29 @@ No celular: barra inferior com quatro destinos e o botão central de novo lança
 folha de baixo. No desktop: rail vertical de ícones à esquerda. Design em Fluent 2, a linguagem
 visual do Microsoft Teams.
 
+## Multiusuário
+
+Cada pessoa tem **um plano**, e todo o resto pendura nele: as tabelas descem de `plans` por
+`ON DELETE CASCADE`, e o índice `uq_plan_per_user` faz valer o "um por pessoa" que antes só
+existia no código.
+
+O isolamento não depende de lembrar de filtrar: toda página e toda action começa por
+`resolvePlanContext()`, que resolve o plano **pela sessão** — nunca por um id vindo do cliente —
+e ainda reconfere `existing.planId` antes de gravar ou apagar.
+
+**Para convidar alguém:** acrescente o e-mail em `ALLOWED_EMAILS` e publique. No primeiro login,
+o evento `createUser` do Auth.js cria um plano vazio (as três linhas obrigatórias — `plans`,
+`income_settings`, `yield_policies` — mais seis categorias de gasto) e a pessoa preenche o resto
+em `/premissas`. Ninguém precisa de terminal nem de você.
+
+As categorias iniciais nascem com **orçamento zero** de propósito: chutar o orçamento de outra
+pessoa produz um número inventado que parece oficial. Os medidores tratam zero como 0%, então
+nada aparece estourado no primeiro dia.
+
+Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` antes do login —
+`/sem-plano` oferece um botão que refaz a mesma chamada. O caso de uso é idempotente, e o índice
+único decide a corrida entre duas abas abrindo o app ao mesmo tempo.
+
 ## Premissas e limites conhecidos
 
 - **TR desligada por padrão.** A planilha assume TR = 0, e é assim que o teste-ouro reproduz os
@@ -158,5 +190,5 @@ visual do Microsoft Teams.
 
 ## Fora do escopo desta versão
 
-Import de CSV/extrato, rota de API para lançar gastos pelo agente, multiusuário, testes
-end-to-end.
+Import de CSV/extrato, rota de API para lançar gastos pelo agente, mais de um plano por pessoa,
+convite por link (hoje se convida editando `ALLOWED_EMAILS`), testes end-to-end.
