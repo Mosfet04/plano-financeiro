@@ -74,12 +74,14 @@ async function handle(request: NextRequest) {
 
   const container = buildContainer();
 
-  // Plano único: a rotina reprojeta o plano que existir. Sem plano, a rota
-  // ainda grava o snapshot — o histórico de taxas não depende disso.
-  const anyPlan = await container.db.query.plans.findFirst({ columns: { id: true } });
+  // Um snapshot de taxas para todo mundo, um impacto por plano: a Selic é a
+  // mesma para os três, mas o que ela faz com a quitação de cada um não é.
+  // Sem nenhum plano a rota ainda grava o snapshot — o histórico de taxas não
+  // depende de existir plano.
+  const plans = await container.repos.plans.listAll();
 
   const result = await container.useCases.refreshMarketRates.execute({
-    planId: anyPlan?.id ?? null,
+    planIds: plans.map((plan) => plan.id),
     manual,
   });
 
@@ -90,7 +92,7 @@ async function handle(request: NextRequest) {
     );
   }
 
-  const { snapshot, previous, impact } = result.value;
+  const { snapshot, previous, impacts } = result.value;
 
   return NextResponse.json({
     ok: true,
@@ -110,23 +112,24 @@ async function handle(request: NextRequest) {
           ipca12m: previous.ipcaAnnual,
         }
       : null,
-    // O diff é o ponto da rotina: não interessa "ok", interessa o que mudou.
-    impacto: impact
-      ? {
-          quitacaoAntes: impact.payoffMonthBefore ? formatMonth(impact.payoffMonthBefore) : null,
-          quitacaoDepois: impact.payoffMonthAfter ? formatMonth(impact.payoffMonthAfter) : null,
-          mudouAQuitacao: impact.payoffMonthBefore !== impact.payoffMonthAfter,
-          menorCaixaAntes: formatBRL(impact.minCashBefore),
-          menorCaixaDepois: formatBRL(impact.minCashAfter),
-          rendimentoAntes: impact.netAnnualYieldBefore,
-          rendimentoDepois: impact.netAnnualYieldAfter,
-          // A virada é o evento que a rotina existe para pegar: o dia em que
-          // o CDI cai abaixo do custo da dívida e amortizar passa a valer.
-          amortizarAntes: impact.amortizationBefore,
-          amortizarDepois: impact.amortizationAfter,
-          viradaDaDecisao: impact.amortizationFlipped,
-        }
-      : null,
+    // O diff é o ponto da rotina: não interessa "ok", interessa o que mudou —
+    // e agora muda de um jeito para cada plano.
+    impactos: impacts.map(({ planId, planName, impact }) => ({
+      planoId: planId,
+      plano: planName,
+      quitacaoAntes: impact.payoffMonthBefore ? formatMonth(impact.payoffMonthBefore) : null,
+      quitacaoDepois: impact.payoffMonthAfter ? formatMonth(impact.payoffMonthAfter) : null,
+      mudouAQuitacao: impact.payoffMonthBefore !== impact.payoffMonthAfter,
+      menorCaixaAntes: formatBRL(impact.minCashBefore),
+      menorCaixaDepois: formatBRL(impact.minCashAfter),
+      rendimentoAntes: impact.netAnnualYieldBefore,
+      rendimentoDepois: impact.netAnnualYieldAfter,
+      // A virada é o evento que a rotina existe para pegar: o dia em que
+      // o CDI cai abaixo do custo da dívida e amortizar passa a valer.
+      amortizarAntes: impact.amortizationBefore,
+      amortizarDepois: impact.amortizationAfter,
+      viradaDaDecisao: impact.amortizationFlipped,
+    })),
   });
 }
 

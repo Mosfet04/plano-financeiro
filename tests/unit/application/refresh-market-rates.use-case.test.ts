@@ -14,18 +14,18 @@ import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
 import { buildSpreadsheetPlan } from "@/infra/db/seed-data";
 import { ratesSnapshot } from "../../fixtures/plano-da-planilha";
 
-function planSnapshot(rates: MarketRatesSnapshot | null): PlanSnapshot {
+function planSnapshot(rates: MarketRatesSnapshot | null, planId = "plan-1"): PlanSnapshot {
   let counter = 0;
   const seeded = buildSpreadsheetPlan({
-    planId: "plan-1",
-    userId: "user-1",
+    planId,
+    userId: `user-de-${planId}`,
     nextId: () => `id-${++counter}`,
     // Ligado ao CDI: é o modo em que a rotina semanal muda a projeção.
     liveMode: true,
   });
 
   return {
-    plan: seeded.plan,
+    plan: { ...seeded.plan, name: `Plano de ${planId}` },
     income: seeded.income,
     yieldPolicy: seeded.yieldPolicy,
     accrueInvestments: seeded.accrueInvestments,
@@ -44,6 +44,8 @@ function build(options: {
   latest?: MarketRatesSnapshot | null;
   fetchImpl?: MarketRatesProvider["fetchCurrent"];
   plan?: PlanSnapshot | null;
+  /** Planos que o `loadSnapshot` não acha — apagados no meio da rodada. */
+  missing?: readonly string[];
 }) {
   const created: NewMarketRates[] = [];
 
@@ -78,11 +80,13 @@ function build(options: {
   } as unknown as MarketRatesProvider;
 
   const plans = {
-    loadSnapshot: vi
-      .fn()
-      .mockResolvedValue(
-        options.plan === undefined ? planSnapshot(options.latest ?? null) : options.plan
-      ),
+    // Chaveado por planId: a rotina reprojeta cada plano com o mesmo snapshot.
+    loadSnapshot: vi.fn(async (planId: string) => {
+      if (options.missing?.includes(planId)) return null;
+      return options.plan === undefined
+        ? planSnapshot(options.latest ?? null, planId)
+        : options.plan;
+    }),
   } as unknown as PlanRepository;
 
   const ids: IdGenerator = { generate: () => "snapshot-novo" };
@@ -99,7 +103,7 @@ describe("RefreshMarketRatesUseCase", () => {
   it("sem corpo, busca no Banco Central e marca a fonte como BCB", async () => {
     const { useCase, provider, created } = build({});
 
-    const result = await useCase.execute({ planId: "plan-1" });
+    const result = await useCase.execute({ planIds: ["plan-1"] });
 
     expect(result.ok).toBe(true);
     expect(provider.fetchCurrent).toHaveBeenCalledOnce();
@@ -111,7 +115,7 @@ describe("RefreshMarketRatesUseCase", () => {
     const { useCase, provider, created } = build({});
 
     const result = await useCase.execute({
-      planId: "plan-1",
+      planIds: ["plan-1"],
       manual: {
         selicAnnual: 0.1,
         cdiAnnual: 0.099,
@@ -129,7 +133,7 @@ describe("RefreshMarketRatesUseCase", () => {
   it("com taxa parcial, completa com o que veio do Banco Central", async () => {
     const { useCase, provider, created } = build({});
 
-    await useCase.execute({ planId: "plan-1", manual: { cdiAnnual: 0.08 } });
+    await useCase.execute({ planIds: ["plan-1"], manual: { cdiAnnual: 0.08 } });
 
     expect(provider.fetchCurrent).toHaveBeenCalledOnce();
     expect(created[0].cdiAnnual).toBeCloseTo(0.08, 10);
@@ -143,7 +147,7 @@ describe("RefreshMarketRatesUseCase", () => {
       fetchImpl: vi.fn().mockRejectedValue(new Error("SGS 432 respondeu 503")),
     });
 
-    const result = await useCase.execute({ planId: "plan-1" });
+    const result = await useCase.execute({ planIds: ["plan-1"] });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -165,24 +169,59 @@ describe("RefreshMarketRatesUseCase", () => {
       }),
     });
 
-    const result = await useCase.execute({ planId: "plan-1" });
+    const result = await useCase.execute({ planIds: ["plan-1"] });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    const impact = result.value.impact;
-    expect(impact).not.toBeNull();
-    expect(impact!.netAnnualYieldAfter).toBeLessThan(impact!.netAnnualYieldBefore);
-    expect(impact!.payoffMonthAfter! > impact!.payoffMonthBefore!).toBe(true);
+    expect(result.value.impacts).toHaveLength(1);
+    const { impact } = result.value.impacts[0];
+    expect(impact.netAnnualYieldAfter).toBeLessThan(impact.netAnnualYieldBefore);
+    expect(impact.payoffMonthAfter! > impact.payoffMonthBefore!).toBe(true);
   });
 
   it("grava o snapshot mesmo sem plano para reprojetar", async () => {
     const { useCase, created } = build({ plan: null });
 
-    const result = await useCase.execute({ planId: null });
+    const result = await useCase.execute({ planIds: [] });
 
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.impact).toBeNull();
+    if (result.ok) expect(result.value.impacts).toEqual([]);
+    expect(created).toHaveLength(1);
+  });
+
+  it("um snapshot só, um impacto por plano", async () => {
+    const { useCase, created } = build({ latest: ratesSnapshot });
+
+    const result = await useCase.execute({ planIds: ["plan-1", "plan-2", "plan-3"] });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // A taxa é a mesma para todo mundo: uma linha em `market_rates`, não três.
+    expect(created).toHaveLength(1);
+
+    expect(result.value.impacts).toHaveLength(3);
+    expect(result.value.impacts.map((entry) => entry.planId)).toEqual([
+      "plan-1",
+      "plan-2",
+      "plan-3",
+    ]);
+    // O nome vem junto para o relatório dizer de quem é cada quitação.
+    expect(result.value.impacts[1].planName).toBe("Plano de plan-2");
+  });
+
+  it("pula o plano que sumiu no meio da rodada sem derrubar os outros", async () => {
+    // Conta apagada entre o `listAll` da rota e o `loadSnapshot` daqui: o
+    // impacto dela some do relatório, os outros dois continuam.
+    const { useCase, created } = build({ latest: ratesSnapshot, missing: ["plan-2"] });
+
+    const result = await useCase.execute({ planIds: ["plan-1", "plan-2", "plan-3"] });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.impacts.map((entry) => entry.planId)).toEqual(["plan-1", "plan-3"]);
     expect(created).toHaveLength(1);
   });
 });

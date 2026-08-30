@@ -25,7 +25,12 @@ export interface ManualRates {
 }
 
 export interface RefreshMarketRatesInput {
-  readonly planId: string | null;
+  /**
+   * Planos a reprojetar. O snapshot de taxas é UM só e vale para todo mundo —
+   * a tabela `market_rates` não tem `planId` de propósito. O que é por pessoa
+   * é o impacto: o mesmo CDI muda a quitação de cada plano de um jeito.
+   */
+  readonly planIds: readonly string[];
   /** Quando presente, os valores informados vencem os do BCB. */
   readonly manual?: ManualRates;
 }
@@ -46,18 +51,25 @@ export interface ProjectionImpact {
   readonly amortizationFlipped: boolean;
 }
 
+/** O impacto do snapshot num plano, com o nome para o relatório da rotina. */
+export interface PlanImpact {
+  readonly planId: string;
+  readonly planName: string;
+  readonly impact: ProjectionImpact;
+}
+
 export interface RefreshMarketRatesOutput {
   readonly snapshot: MarketRatesSnapshot;
   readonly previous: MarketRatesSnapshot | null;
-  /** Nulo quando não há plano para reprojetar. */
-  readonly impact: ProjectionImpact | null;
+  /** Vazio quando não há plano para reprojetar. */
+  readonly impacts: readonly PlanImpact[];
 }
 
 /**
- * Grava um snapshot novo de taxas e devolve o que isso fez com o plano.
+ * Grava um snapshot novo de taxas e devolve o que isso fez com cada plano.
  *
  * O diff é o ponto: a rotina de quinta não precisa reportar "ok", e sim
- * "a quitação passou de set/2030 para out/2030".
+ * "a quitação do Mateus passou de set/2030 para out/2030".
  */
 export class RefreshMarketRatesUseCase {
   constructor(
@@ -75,9 +87,16 @@ export class RefreshMarketRatesUseCase {
     if (!fetched.ok) return fetched;
 
     const snapshot = await this.rates.create(this.ids.generate(), fetched.value);
-    const impact = input.planId ? await this.measureImpact(input.planId, previous, snapshot) : null;
 
-    return ok({ snapshot, previous, impact });
+    const measured = await Promise.all(
+      input.planIds.map((planId) => this.measureImpact(planId, previous, snapshot))
+    );
+
+    return ok({
+      snapshot,
+      previous,
+      impacts: measured.filter((entry): entry is PlanImpact => entry !== null),
+    });
   }
 
   private async fetchRates(manual: ManualRates | undefined, previous: MarketRatesSnapshot | null) {
@@ -126,7 +145,7 @@ export class RefreshMarketRatesUseCase {
     planId: string,
     previous: MarketRatesSnapshot | null,
     current: MarketRatesSnapshot
-  ): Promise<ProjectionImpact | null> {
+  ): Promise<PlanImpact | null> {
     const plan = await this.plans.loadSnapshot(planId);
     if (!plan) return null;
 
@@ -141,7 +160,7 @@ export class RefreshMarketRatesUseCase {
     const amortizationBefore = before.amortizationAdvice?.verdict ?? null;
     const amortizationAfter = after.amortizationAdvice?.verdict ?? null;
 
-    return {
+    const impact: ProjectionImpact = {
       payoffMonthBefore: before.payoffMonth,
       payoffMonthAfter: after.payoffMonth,
       minCashBefore: before.minCash,
@@ -155,5 +174,7 @@ export class RefreshMarketRatesUseCase {
         amortizationAfter !== null &&
         amortizationBefore !== amortizationAfter,
     };
+
+    return { planId, planName: plan.plan.name, impact };
   }
 }
