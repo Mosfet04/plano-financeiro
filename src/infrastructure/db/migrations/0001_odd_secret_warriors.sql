@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uq_plan_per_user" ON "plans" USING btree ("user_id");

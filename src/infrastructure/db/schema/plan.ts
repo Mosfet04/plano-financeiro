@@ -9,16 +9,25 @@ import { users } from "./auth";
  * - mês do calendário é `text` no formato "YYYY-MM" (não é instante, não tem fuso);
  * - data civil é `text` no formato "YYYY-MM-DD".
  */
-export const plans = pgTable("plans", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  startMonth: text("start_month").notNull(),
-  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
-});
+export const plans = pgTable(
+  "plans",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    startMonth: text("start_month").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+  },
+  /**
+   * Um plano por pessoa. A regra já estava no código — `findByUserId` sempre
+   * devolveu o primeiro — mas só aqui ela vira verdade: é este índice que
+   * decide a corrida quando dois logins simultâneos tentam criar o plano.
+   */
+  (t) => [uniqueIndex("uq_plan_per_user").on(t.userId)]
+);
 
 export const incomeSettings = pgTable("income_settings", {
   planId: text("plan_id")
