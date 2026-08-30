@@ -1,6 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 
-import type { PlanRepository } from "@/core/application/ports";
+import type { NewPlanData, PlanRepository } from "@/core/application/ports";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
 import type {
   IncomeSettings,
@@ -37,12 +38,109 @@ import {
   toYieldPolicy,
 } from "./mappers";
 
+/** Violação de unicidade do Postgres. O driver do Neon repassa o `code` cru. */
+function isUniqueViolation(cause: unknown): boolean {
+  return typeof cause === "object" && cause !== null && "code" in cause && cause.code === "23505";
+}
+
 export class DrizzlePlanRepository implements PlanRepository {
   constructor(private readonly db: Database) {}
 
   async findByUserId(userId: string): Promise<Plan | null> {
     const row = await this.db.query.plans.findFirst({ where: eq(plans.userId, userId) });
     return row ? toPlan(row) : null;
+  }
+
+  async listAll(): Promise<Plan[]> {
+    const rows = await this.db.query.plans.findMany({ orderBy: asc(plans.createdAt) });
+    return rows.map(toPlan);
+  }
+
+  /**
+   * Um `batch` do neon-http: as inserções vão numa transação só. O driver HTTP
+   * não tem `transaction()`, mas `batch()` cobre exatamente este caso — ou o
+   * plano nasce inteiro, ou não nasce.
+   */
+  async create(data: NewPlanData): Promise<Plan> {
+    const { plan, income, yieldPolicy, categories } = data;
+
+    const statements: BatchItem<"pg">[] = [
+      this.db.insert(plans).values({
+        id: plan.id,
+        userId: plan.userId,
+        name: plan.name,
+        startMonth: plan.startMonth,
+        createdAt: plan.createdAt,
+        updatedAt: plan.updatedAt,
+      }),
+      this.db.insert(incomeSettings).values({
+        planId: income.planId,
+        grossSalaryCents: income.grossSalary,
+        netSalaryCents: income.netSalary,
+        annualRaise: income.annualRaise,
+        raiseMonth: income.raiseMonth,
+        mealCardMonthlyCents: income.mealCardMonthly,
+        thirteenthNetCents: income.thirteenthNet,
+        thirteenthMonths: income.thirteenthMonths.join(","),
+        vacationBonusCents: income.vacationBonus,
+        vacationMonth: income.vacationMonth,
+        plrGrossSalaries: income.plrGrossSalaries,
+        plrMonth: income.plrMonth,
+      }),
+      this.db.insert(yieldPolicies).values({
+        planId: yieldPolicy.planId,
+        mode: yieldPolicy.mode,
+        manualAnnualNet: yieldPolicy.manualAnnualNet,
+        cdiPercent: yieldPolicy.cdiPercent,
+        incomeTaxRate: yieldPolicy.incomeTaxRate,
+        cashOnHandCents: yieldPolicy.cashOnHand,
+      }),
+    ];
+
+    if (categories.length > 0) {
+      statements.push(
+        this.db.insert(budgetCategories).values(
+          categories.map((category) => ({
+            id: category.id,
+            planId: category.planId,
+            name: category.name,
+            monthlyBudgetCents: category.monthlyBudget,
+            defaultPaymentMethod: category.defaultPaymentMethod,
+            color: category.color,
+            active: category.active,
+            sortOrder: category.sortOrder,
+          }))
+        )
+      );
+    }
+
+    if (data.reserveTargets.length > 0) {
+      statements.push(
+        this.db.insert(reserveTargets).values(
+          data.reserveTargets.map((target) => ({
+            id: target.id,
+            planId: target.planId,
+            effectiveFrom: target.effectiveFrom,
+            months: target.months,
+          }))
+        )
+      );
+    }
+
+    try {
+      await this.db.batch(statements as [BatchItem<"pg">, ...BatchItem<"pg">[]]);
+    } catch (cause) {
+      // 23505 = unique_violation. Duas abas abrindo o app ao mesmo tempo no
+      // primeiro login disputam o índice único de `plans.user_id`; quem perde
+      // lê o plano que a outra acabou de criar em vez de estourar na cara.
+      if (!isUniqueViolation(cause)) throw cause;
+
+      const existing = await this.findByUserId(plan.userId);
+      if (existing) return existing;
+      throw cause;
+    }
+
+    return plan;
   }
 
   /**

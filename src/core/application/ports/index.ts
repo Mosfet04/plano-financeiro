@@ -24,8 +24,24 @@ export interface IdGenerator {
   generate(): string;
 }
 
+/** Tudo que nasce junto com um plano novo — ver `CreatePlanUseCase`. */
+export interface NewPlanData {
+  readonly plan: Plan;
+  readonly income: IncomeSettings;
+  readonly yieldPolicy: YieldPolicy;
+  readonly categories: readonly BudgetCategory[];
+  readonly reserveTargets: readonly ReserveTarget[];
+}
+
 export interface PlanRepository {
   findByUserId(userId: string): Promise<Plan | null>;
+  /** Todos os planos do banco. Só a rotina de taxas usa — ela reprojeta cada um. */
+  listAll(): Promise<Plan[]>;
+  /**
+   * Grava o plano e as linhas obrigatórias de uma vez. Se a corrida perder
+   * para outra chamada, devolve o plano que já existe em vez de estourar.
+   */
+  create(data: NewPlanData): Promise<Plan>;
   /** Carrega o plano inteiro para projetar. */
   loadSnapshot(planId: string): Promise<PlanSnapshot | null>;
   saveIncomeSettings(settings: IncomeSettings): Promise<void>;
