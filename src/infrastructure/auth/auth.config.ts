@@ -11,10 +11,14 @@ export const authConfig = {
   providers: [
     Google({
       /**
-       * O seed cria a linha em `users` antes do primeiro login, para já
-       * pendurar o plano nela. Sem isto, o adapter acha o usuário pelo e-mail,
-       * não encontra nenhuma linha em `accounts` e recusa o login com
-       * `OAuthAccountNotLinked`.
+       * Necessário para as linhas de `users` que não vieram do adapter — a do
+       * seed, criada antes do primeiro login para já pendurar o plano nela.
+       * Sem isto, o adapter acha o usuário pelo e-mail, não encontra nenhuma
+       * linha em `accounts` e recusa o login com `OAuthAccountNotLinked`.
+       *
+       * Quem entra pela allowlist sem passar pelo seed não depende disso: o
+       * adapter cria usuário e conta juntos, e o evento `createUser` cria o
+       * plano vazio.
        *
        * O "dangerous" do nome é o cenário de vincular contas de provedores
        * diferentes pelo e-mail: alguém cadastra o seu endereço num provedor e
