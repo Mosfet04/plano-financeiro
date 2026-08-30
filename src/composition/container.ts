@@ -3,6 +3,7 @@ import { formatInTimeZone } from "date-fns-tz";
 
 import type { Clock, IdGenerator } from "@/core/application/ports";
 import { CloseMonthUseCase } from "@/core/application/use-cases/close-month.use-case";
+import { CreatePlanUseCase } from "@/core/application/use-cases/create-plan.use-case";
 import { GetProjectionUseCase } from "@/core/application/use-cases/get-projection.use-case";
 import { RefreshMarketRatesUseCase } from "@/core/application/use-cases/refresh-market-rates.use-case";
 import { TZ } from "@/infra/config/time";
@@ -63,6 +64,7 @@ export function buildContainer() {
     },
     useCases: {
       getProjection: new GetProjectionUseCase(plans, systemClock),
+      createPlan: new CreatePlanUseCase(plans, uuidGenerator, systemClock),
       closeMonth: new CloseMonthUseCase(plans, transactions, systemClock),
       refreshMarketRates: new RefreshMarketRatesUseCase(
         marketRates,
