@@ -328,9 +328,64 @@ function computeBaseRows(
     );
   }
 
+  let debt = financing ? financing.principal : ZERO;
+
+  /**
+   * Um mês de financiamento: apura parcela e amortização extra e desce o saldo
+   * devedor. Extraído porque roda em duas passadas — a de alcance, das parcelas
+   * já pagas, e a da projeção propriamente dita.
+   */
+  const amortizeMonth = (month: YearMonth): { installment: Cents; extraAmortization: Cents } => {
+    if (!financing || !isSameOrAfter(month, financing.firstInstallmentMonth) || debt <= 0) {
+      return { installment: ZERO, extraAmortization: ZERO };
+    }
+
+    const corrected = tr > 0 ? cents(debt * (1 + tr)) : debt;
+    const remainingMonths = Math.max(
+      1,
+      financing.termMonths - monthsBetween(financing.firstInstallmentMonth, month)
+    );
+
+    const interest = interestOn(corrected, monthlyRate);
+    const amortization =
+      financing.system === AmortizationSystem.PRICE
+        ? minCents(subCents(priceValue, interest), corrected)
+        : tr > 0
+          ? minCents(cents(corrected / remainingMonths), corrected)
+          : minCents(fixedAmortization, corrected);
+
+    const installment = addCents(interest, amortization, financing.insuranceMonthly);
+    const extraAmortization = minCents(
+      extraByMonth.get(month) ?? ZERO,
+      subCents(corrected, amortization)
+    );
+    debt = maxCents(subCents(subCents(corrected, amortization), extraAmortization), ZERO);
+
+    return { installment, extraAmortization };
+  };
+
+  // Passada de alcance: as parcelas pagas ANTES do primeiro mês projetado.
+  //
+  // `principal` é o valor da assinatura do contrato, não o saldo de hoje. Como a
+  // projeção recomeça depois do último mês fechado, sem esta passada cada mês
+  // fechado devolveria uma parcela ao saldo devedor — quatro meses já valiam
+  // R$ 2.476 de dívida inexistente e quase um ano a mais de quitação.
+  //
+  // Só o saldo devedor é alcançado. O salário não: `netSalary` é o que você
+  // recebe HOJE, mantido em /premissas, e reaplicar reajustes passados por cima
+  // dele inventaria aumento que já está no número.
+  if (financing) {
+    for (
+      let month = financing.firstInstallmentMonth;
+      isBefore(month, startMonth);
+      month = addMonths(month, 1)
+    ) {
+      amortizeMonth(month);
+    }
+  }
+
   const rows: BaseRow[] = [];
   let salary = income.netSalary;
-  let debt = financing ? financing.principal : ZERO;
 
   for (let i = 0; i < input.horizonMonths; i++) {
     const month = addMonths(startMonth, i);
@@ -341,34 +396,7 @@ function computeBaseRows(
       salary = cents(salary * (1 + income.annualRaise));
     }
 
-    const financingActive =
-      financing !== null && isSameOrAfter(month, financing.firstInstallmentMonth);
-
-    let installment = ZERO;
-    let extraAmortization = ZERO;
-
-    if (financing && financingActive && debt > 0) {
-      const corrected = tr > 0 ? cents(debt * (1 + tr)) : debt;
-      const remainingMonths = Math.max(
-        1,
-        financing.termMonths - monthsBetween(financing.firstInstallmentMonth, month)
-      );
-
-      const interest = interestOn(corrected, monthlyRate);
-      const amortization =
-        financing.system === AmortizationSystem.PRICE
-          ? minCents(subCents(priceValue, interest), corrected)
-          : tr > 0
-            ? minCents(cents(corrected / remainingMonths), corrected)
-            : minCents(fixedAmortization, corrected);
-
-      installment = addCents(interest, amortization, financing.insuranceMonthly);
-      extraAmortization = minCents(
-        extraByMonth.get(month) ?? ZERO,
-        subCents(corrected, amortization)
-      );
-      debt = maxCents(subCents(subCents(corrected, amortization), extraAmortization), ZERO);
-    }
+    const { installment, extraAmortization } = amortizeMonth(month);
 
     const housing = addCents(
       sumRecurring(input.recurringItems, month, ItemGroup.HOUSING),

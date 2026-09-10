@@ -275,6 +275,10 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
   Fechar o mês com o saldo conferido no fechamento é o que evita isso.
 - **Fechamento não valida o caixa.** Nada confere se o saldo digitado bate com a sobra declarada — se
   os dois discordam, o plano acredita no saldo, que é o que existe de verdade no banco.
+- **O saldo devedor é calculado, não conferido.** A projeção alcança as parcelas pagas antes do
+  primeiro mês projetado aplicando a mesma matemática do contrato, mês a mês, a partir de
+  `principal`. Bate com o extrato enquanto tudo for pago em dia e pelo valor previsto; um atraso ou
+  uma amortização feita fora do app não aparecem.
 - **Juros ao mês = taxa anual ÷ 12**, sem capitalizar — é a convenção do contrato da CAIXA, e é o
   que reproduz os R$ 1.659,67 de juros da primeira parcela.
 - **Divergência de centavos.** A planilha calcula em ponto flutuante sem arredondar; aqui tudo é

@@ -42,6 +42,7 @@ export default async function MesPage({
         }
       : null,
     canSettle: month <= currentMonth,
+    hasCashAccounts: (await ctx.container.repos.cashAccounts.listByPlan(ctx.planId)).length > 0,
     history: closings.map((entry) => ({
       month: entry.month,
       leftover: entry.leftover,

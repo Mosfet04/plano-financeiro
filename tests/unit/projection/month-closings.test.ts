@@ -121,6 +121,45 @@ describe("recomeço depois do último mês fechado", () => {
   });
 });
 
+describe("saldo devedor atravessa os meses fechados", () => {
+  const monthsFrom = (start: string, n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const [y, m] = start.split("-").map(Number);
+      const total = y * 12 + (m - 1) + i;
+      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
+    });
+
+  /**
+   * `principal` é o valor da assinatura do contrato, não o saldo de hoje. Sem a
+   * passada de alcance, cada mês fechado devolvia uma parcela ao saldo devedor:
+   * quatro meses valiam R$ 2.476 de dívida inexistente e quase um ano a mais de
+   * quitação. A primeira parcela do plano é dez/2026.
+   */
+  it.each([1, 4, 12, 24])(
+    "com %i mês(es) fechado(s) a dívida bate com a projeção contínua",
+    (n) => {
+      const closings = monthsFrom("2026-12", n).map((m) => closing(m));
+      const rebased = project({ closings });
+      const continuous = project({});
+
+      const reference = continuous.months.find((m) => m.month === rebased.startMonth);
+      expect(reference, `mês ${rebased.startMonth} fora do horizonte`).toBeDefined();
+      expect(rebased.months[0].debt).toBe(reference!.debt);
+      expect(rebased.months[0].installment).toBe(reference!.installment);
+    }
+  );
+
+  it("mês fechado antes da primeira parcela não mexe na dívida", () => {
+    // Fechar out/2026 é antes de dez/2026: nada foi amortizado ainda.
+    const rebased = project({ closings: [closing("2026-10")] });
+    const continuous = project({});
+    const reference = continuous.months.find((m) => m.month === "2026-11")!;
+
+    expect(rebased.months[0].debt).toBe(reference.debt);
+    expect(rebased.months[0].installment).toBe(0);
+  });
+});
+
 describe("conferência no dia 1º", () => {
   /**
    * O fluxo humano: no dia 1º de outubro você fecha setembro e confere os

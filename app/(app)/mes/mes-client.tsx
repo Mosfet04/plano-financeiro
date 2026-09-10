@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Lock, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lock, Trash2, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
@@ -27,6 +27,8 @@ export interface MesData {
   } | null;
   /** Falso para um mês que ainda não começou. */
   canSettle: boolean;
+  /** Fechar sem nenhuma conta de caixa apaga do plano o dinheiro já guardado. */
+  hasCashAccounts: boolean;
   /** Série "o plano previu × eu fiz", do mais recente para trás. */
   history: Array<{ month: string; leftover: number; planTarget: number; cash: number }>;
   categories: Array<{
@@ -320,6 +322,26 @@ function SettleBar({ data }: { data: MesData }) {
   }
 
   if (!data.canSettle) return null;
+
+  // Fechar o mês manda a projeção começar no seguinte, partindo do saldo das
+  // contas. Sem nenhuma conta cadastrada esse saldo é zero, e todo o dinheiro
+  // acumulado nos meses fechados simplesmente some do plano.
+  if (!data.hasCashAccounts) {
+    return (
+      <div className="rounded-card bg-warning-bg flex flex-wrap items-center gap-3 border border-[var(--warning)] p-4">
+        <AlertTriangle className="text-warning size-5 shrink-0" />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <p className="text-sm font-semibold">
+            Cadastre onde seu dinheiro está antes de fechar {formatMonth(data.month)}
+          </p>
+          <p className="text-fg-muted text-xs">
+            A projeção passa a partir do saldo das suas contas. Sem nenhuma cadastrada, o saldo é
+            zero e tudo que você já guardou some do plano. Vá em Premissas → Caixa e caixinhas.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-card bg-surface-subtle flex flex-wrap items-center gap-3 border border-[var(--stroke)] p-4">
