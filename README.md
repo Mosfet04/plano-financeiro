@@ -59,6 +59,62 @@ que só se conhece depois de percorrer os meses.
 que começa nele; o auxílio home office é um item de _entrada_ no grupo moradia, que abate o custo do
 apê exatamente como a planilha fazia na mão. O motor não tem nenhum caso especial para a mudança.
 
+## Financiamento: SAC, PRICE e amortização extra
+
+Os dois sistemas funcionam, e a escolha vive em `financings.system`. A parcela é **derivada de
+(saldo devedor, prazo restante) todo mês**, não guardada do contrato. Num mês normal isso devolve
+exatamente a mesma parcela — é propriedade dos dois sistemas — e é o que faz correção monetária e
+amortização extra funcionarem sem caso especial. Guardar a parcela original fazia a amortização
+encolher mês a mês com a TR ligada, até virar negativa.
+
+`extra_amortization_effect` decide o que a amortização extra encurta, valendo para as duas fontes
+(o saque do FGTS e o que você amortizar do bolso):
+
+- `SHORTEN_TERM` (padrão) — mantém o pagamento e encurta o contrato. Economiza mais juros, e é o que
+  serve a um plano cujo objetivo é quitar. Na SAC o que se mantém é a amortização, não a parcela: a
+  parcela SAC cai sozinha porque os juros caem.
+- `REDUCE_INSTALLMENT` — mantém o prazo. Não precisa de conta nenhuma: a derivação do mês seguinte
+  já devolve uma parcela menor.
+
+### PRICE + TR faz o saldo devedor crescer
+
+Vale saber antes de trocar de sistema. Num contrato de 420 meses a 7,66% a.a., a amortização da
+PRICE começa em uns **R$ 123** por mês, e a TR a 0,17% corrige o saldo em uns **R$ 444**. A
+diferença é dívida subindo:
+
+|                  | parcela inicial | dívida em 84 meses | meses com saldo subindo |
+| ---------------- | --------------- | ------------------ | ----------------------- |
+| SAC, TR off      | R$ 2.348,72     | R$ 210.476,00      | 0                       |
+| SAC, TR on       | R$ 2.352,61     | R$ 241.284,28      | 0                       |
+| PRICE, TR off    | R$ 1.852,83     | R$ 247.194,63      | 0                       |
+| **PRICE, TR on** | R$ 1.855,87     | **R$ 283.377,44**  | **79 de 84**            |
+
+Não é defeito do motor: a amortização segue positiva (a parcela cobre os juros), e o saldo cresce
+porque a correção é maior que ela. A SAC não sofre disso porque amortiza R$ 620 desde a primeira
+parcela, mais que a correção. `/premissas` avisa em vermelho quando as duas opções estão ligadas.
+
+A PRICE tem a vantagem oposta: parcela inicial R$ 500 menor, o que alivia justamente o aperto de
+2026-2027 — o menor caixa do plano sai de −R$ 2.435 para −R$ 411.
+
+## FGTS
+
+`fgts_settings`, uma linha por plano, desligada por padrão. Fica fora de `cash_accounts` de
+propósito: **FGTS não é caixa** — não dá para gastar, não conta para a reserva, e a única coisa que
+faz no modelo é abater o financiamento.
+
+O valor de cada amortização não é digitado, é **projetado**: o saldo cresce com o depósito mensal
+(8% do salário bruto, que acompanha o reajuste anual) e com o rendimento (3% a.a. da lei), e no mês
+em que a lei libera — 24 em 24 meses no SFH — o acumulado vira abatimento, limitado ao saldo
+devedor. Digitar um valor para 2028 seria chutar o que só a conta sabe.
+
+**O saque não passa pelo caixa.** `payoffCash` desconta só a amortização paga com dinheiro seu
+(`extraAmortization − fgtsAmortization`). Descontar o saque do FGTS cobrava o mesmo abatimento duas
+vezes e chegava a **atrasar** a quitação — o oposto de amortizar. O sinal de que está certo é que
+ligar o FGTS antecipa a quitação e deixa o menor caixa do plano intacto.
+
+Com R$ 18 mil de saldo e saques a partir de dez/2027, a quitação sai de set/2030 para **mar/2030**
+na SAC, e de ago/2030 para **fev/2030** na PRICE.
+
 ## Caixa, caixinhas e aplicações
 
 São duas tabelas porque são duas coisas diferentes, e confundi-las custou uma gambiarra:
@@ -275,6 +331,12 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
   Fechar o mês com o saldo conferido no fechamento é o que evita isso.
 - **Fechamento não valida o caixa.** Nada confere se o saldo digitado bate com a sobra declarada — se
   os dois discordam, o plano acredita no saldo, que é o que existe de verdade no banco.
+- **O FGTS é projetado, não lido.** O saldo cresce por 8% do bruto + 3% a.a.; distribuição de
+  resultados, mudança de emprego e saque-aniversário não existem no modelo. Confira o saldo real no
+  app da CAIXA e atualize junto com as caixinhas.
+- **Amortização extra digitada não tem tela.** A action `saveExtraAmortization` existe e o motor
+  respeita, mas `/premissas` só configura o FGTS. Lançar uma amortização avulsa hoje exige chamar a
+  action.
 - **O saldo devedor é calculado, não conferido.** A projeção alcança as parcelas pagas antes do
   primeiro mês projetado aplicando a mesma matemática do contrato, mês a mês, a partir de
   `principal`. Bate com o extrato enquanto tudo for pago em dia e pelo valor previsto; um atraso ou

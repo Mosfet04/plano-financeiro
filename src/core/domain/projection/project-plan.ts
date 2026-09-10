@@ -2,6 +2,7 @@ import type { BudgetCategory } from "../budget/budget-category.entity";
 import type { CashAccount } from "../cash/cash-account.entity";
 import { lastClosedMonth, type MonthClosing } from "../closing/month-closing.entity";
 import { ItemDirection, ItemGroup, type RecurringItem } from "../expense/recurring-item.entity";
+import { isWithdrawalMonth, type FgtsSettings } from "../fgts/fgts.entity";
 import {
   AmortizationSystem,
   type ExtraAmortization,
@@ -34,7 +35,13 @@ import {
   monthsBetween,
   type YearMonth,
 } from "../shared/month";
-import { interestOn, monthlyInterestRate, priceInstallment, sacAmortization } from "./amortization";
+import {
+  amortizationFor,
+  ExtraAmortizationEffect,
+  interestOn,
+  monthlyInterestRate,
+  termAfterExtraAmortization,
+} from "./amortization";
 import { evaluateAmortization, type AmortizationAdvice } from "./amortization-advice";
 import { plrGross, plrNet } from "./plr-tax";
 import {
@@ -73,6 +80,8 @@ export interface ProjectionInput {
   readonly cashAccounts: readonly CashAccount[];
   /** Meses já fechados. A projeção começa depois do último deles. */
   readonly closings: readonly MonthClosing[];
+  /** FGTS como fonte de amortização periódica. Nulo ou desligado = não existe. */
+  readonly fgts: FgtsSettings | null;
   readonly reserveTargets: readonly ReserveTarget[];
   readonly yieldPolicy: YieldPolicy;
   readonly rates: MarketRatesSnapshot | null;
@@ -100,6 +109,10 @@ export interface MonthProjection {
   /** Só a parcela, isolada da moradia — útil na tela. */
   readonly installment: Cents;
   readonly extraAmortization: Cents;
+  /** A parcela da amortização extra que veio do FGTS. */
+  readonly fgtsAmortization: Cents;
+  /** Saldo do FGTS ao fim do mês. Não é caixa: só abate dívida. */
+  readonly fgtsBalance: Cents;
   readonly reserveTarget: Cents;
   /** O caixa já cobre o saldo devedor neste mês. */
   readonly canPayOff: boolean;
@@ -281,6 +294,8 @@ interface BaseRow {
   debt: Cents;
   installment: Cents;
   extraAmortization: Cents;
+  fgtsAmortization: Cents;
+  fgtsBalance: Cents;
 }
 
 /**
@@ -296,13 +311,6 @@ function computeBaseRows(
 ): BaseRow[] {
   const { financing, income } = input;
   const monthlyRate = financing ? monthlyInterestRate(financing.annualInterest) : 0;
-  const fixedAmortization = financing
-    ? sacAmortization(financing.principal, financing.termMonths)
-    : ZERO;
-  const priceValue =
-    financing && financing.system === AmortizationSystem.PRICE
-      ? priceInstallment(financing.principal, monthlyRate, financing.termMonths)
-      : ZERO;
   const tr =
     financing?.applyReferenceRate && input.rates?.referenceRateMonthly
       ? input.rates.referenceRateMonthly
@@ -329,39 +337,86 @@ function computeBaseRows(
   }
 
   let debt = financing ? financing.principal : ZERO;
+  let remainingTerm = financing ? financing.termMonths : 0;
+  let fgtsBalance = input.fgts?.enabled ? input.fgts.balance : ZERO;
+
+  const fgtsMonthlyYield = input.fgts ? monthlyFromAnnual(input.fgts.annualYield) : 0;
 
   /**
-   * Um mês de financiamento: apura parcela e amortização extra e desce o saldo
+   * Um mês de financiamento: apura parcela e amortizações e desce o saldo
    * devedor. Extraído porque roda em duas passadas — a de alcance, das parcelas
    * já pagas, e a da projeção propriamente dita.
+   *
+   * A parcela é DERIVADA de (saldo, prazo restante) todo mês em vez de guardada
+   * do contrato. Num mês normal isso devolve exatamente a mesma parcela — é
+   * propriedade dos dois sistemas — e é o que faz a correção pela TR e a
+   * amortização extra funcionarem sem caso especial.
    */
-  const amortizeMonth = (month: YearMonth): { installment: Cents; extraAmortization: Cents } => {
+  const amortizeMonth = (
+    month: YearMonth,
+    grossSalary: Cents
+  ): { installment: Cents; extraAmortization: Cents; fgtsAmortization: Cents } => {
+    const idle = { installment: ZERO, extraAmortization: ZERO, fgtsAmortization: ZERO };
+
+    // O FGTS acumula mesmo antes da primeira parcela: o saldo do primeiro saque
+    // depende de quantos meses de depósito couberam até lá.
+    if (input.fgts?.enabled) {
+      fgtsBalance = addCents(
+        mulRate(fgtsBalance, 1 + fgtsMonthlyYield),
+        mulRate(grossSalary, input.fgts.depositRate)
+      );
+    }
+
     if (!financing || !isSameOrAfter(month, financing.firstInstallmentMonth) || debt <= 0) {
-      return { installment: ZERO, extraAmortization: ZERO };
+      return idle;
     }
 
     const corrected = tr > 0 ? cents(debt * (1 + tr)) : debt;
-    const remainingMonths = Math.max(
-      1,
-      financing.termMonths - monthsBetween(financing.firstInstallmentMonth, month)
-    );
-
+    const amortization = amortizationFor(financing.system, corrected, monthlyRate, remainingTerm);
     const interest = interestOn(corrected, monthlyRate);
-    const amortization =
-      financing.system === AmortizationSystem.PRICE
-        ? minCents(subCents(priceValue, interest), corrected)
-        : tr > 0
-          ? minCents(cents(corrected / remainingMonths), corrected)
-          : minCents(fixedAmortization, corrected);
-
     const installment = addCents(interest, amortization, financing.insuranceMonthly);
-    const extraAmortization = minCents(
-      extraByMonth.get(month) ?? ZERO,
-      subCents(corrected, amortization)
-    );
-    debt = maxCents(subCents(subCents(corrected, amortization), extraAmortization), ZERO);
 
-    return { installment, extraAmortization };
+    let balance = subCents(corrected, amortization);
+    remainingTerm = Math.max(0, remainingTerm - 1);
+
+    // Amortização extra digitada + o saque do FGTS, se este for um mês de saque.
+    const manual = minCents(extraByMonth.get(month) ?? ZERO, balance);
+    balance = subCents(balance, manual);
+
+    let fromFgts = ZERO;
+    if (input.fgts?.enabled && balance > 0) {
+      const since = monthsBetween(input.fgts.firstWithdrawalMonth, month);
+      if (isWithdrawalMonth(input.fgts, since)) {
+        fromFgts = minCents(fgtsBalance, balance);
+        fgtsBalance = subCents(fgtsBalance, fromFgts);
+        balance = subCents(balance, fromFgts);
+      }
+    }
+
+    const extra = addCents(manual, fromFgts);
+    if (extra > 0 && balance > 0) {
+      // Reduzir o prazo mantém o pagamento e encurta o contrato; reduzir a
+      // parcela mantém o prazo, e a derivação do mês seguinte já devolve uma
+      // parcela menor sozinha — por isso este ramo só trata o primeiro caso.
+      if (financing.extraAmortizationEffect === ExtraAmortizationEffect.SHORTEN_TERM) {
+        const keep =
+          financing.system === AmortizationSystem.SAC
+            ? amortization
+            : subCents(installment, financing.insuranceMonthly);
+        remainingTerm = termAfterExtraAmortization(
+          financing.system,
+          balance,
+          monthlyRate,
+          remainingTerm,
+          keep
+        );
+      }
+    }
+
+    debt = maxCents(balance, ZERO);
+    if (debt === 0) remainingTerm = 0;
+
+    return { installment, extraAmortization: extra, fgtsAmortization: fromFgts };
   };
 
   // Passada de alcance: as parcelas pagas ANTES do primeiro mês projetado.
@@ -373,19 +428,24 @@ function computeBaseRows(
   //
   // Só o saldo devedor é alcançado. O salário não: `netSalary` é o que você
   // recebe HOJE, mantido em /premissas, e reaplicar reajustes passados por cima
-  // dele inventaria aumento que já está no número.
+  // dele inventaria aumento que já está no número. O FGTS também não: o saldo
+  // dele é conferido, não replayado.
   if (financing) {
+    const fgtsBefore = fgtsBalance;
     for (
       let month = financing.firstInstallmentMonth;
       isBefore(month, startMonth);
       month = addMonths(month, 1)
     ) {
-      amortizeMonth(month);
+      amortizeMonth(month, income.grossSalary);
     }
+    fgtsBalance = fgtsBefore;
   }
 
   const rows: BaseRow[] = [];
   let salary = income.netSalary;
+  // O bruto anda junto com o líquido: é dele que sai o depósito do FGTS.
+  let grossSalary = income.grossSalary;
 
   for (let i = 0; i < input.horizonMonths; i++) {
     const month = addMonths(startMonth, i);
@@ -394,9 +454,10 @@ function computeBaseRows(
     // projeção (o salário do primeiro mês é o que você recebe hoje).
     if (i > 0 && monthNumber(month) === income.raiseMonth) {
       salary = cents(salary * (1 + income.annualRaise));
+      grossSalary = cents(grossSalary * (1 + income.annualRaise));
     }
 
-    const { installment, extraAmortization } = amortizeMonth(month);
+    const { installment, extraAmortization, fgtsAmortization } = amortizeMonth(month, grossSalary);
 
     const housing = addCents(
       sumRecurring(input.recurringItems, month, ItemGroup.HOUSING),
@@ -418,6 +479,8 @@ function computeBaseRows(
       debt,
       installment,
       extraAmortization,
+      fgtsAmortization,
+      fgtsBalance,
     });
   }
 
@@ -509,11 +572,16 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
       available <= 0 ? ZERO : minCents(available, maxCents(subCents(reserveTarget, reserve), ZERO));
     const toPayoffCash = subCents(available, toReserve);
 
+    // Só a amortização paga com dinheiro seu sai do caixa. A parcela vinda do
+    // FGTS abate a dívida sem passar pelo caixa — descontá-la aqui cobraria o
+    // mesmo abatimento duas vezes e atrasaria a quitação em vez de antecipá-la.
+    const cashAmortization = subCents(row.extraAmortization, row.fgtsAmortization);
+
     reserve = addCents(reserve, toReserve);
     payoffCash =
       i === 0
         ? addCents(payoffCash, toPayoffCash)
-        : subCents(addCents(payoffCash, toPayoffCash), row.extraAmortization);
+        : subCents(addCents(payoffCash, toPayoffCash), cashAmortization);
 
     months.push({
       month: row.month,
@@ -532,6 +600,8 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
       debt: row.debt,
       installment: row.installment,
       extraAmortization: row.extraAmortization,
+      fgtsAmortization: row.fgtsAmortization,
+      fgtsBalance: row.fgtsBalance,
       reserveTarget,
       canPayOff: row.debt > 0 && payoffCash >= row.debt,
     });

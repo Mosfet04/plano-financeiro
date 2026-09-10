@@ -17,6 +17,7 @@ import {
 } from "@/infra/db/repositories/budget.repository";
 import {
   DrizzleCashAccountRepository,
+  DrizzleFgtsRepository,
   DrizzleFinancingRepository,
   DrizzleInvestmentRepository,
   DrizzleMarketRatesRepository,
@@ -52,6 +53,7 @@ export function buildContainer() {
   const investments = new DrizzleInvestmentRepository(db);
   const cashAccounts = new DrizzleCashAccountRepository(db);
   const closings = new DrizzleMonthClosingRepository(db);
+  const fgts = new DrizzleFgtsRepository(db);
   const marketRates = new DrizzleMarketRatesRepository(db);
   const ratesProvider = new BcbSgsProvider();
 
@@ -71,6 +73,7 @@ export function buildContainer() {
       investments,
       cashAccounts,
       closings,
+      fgts,
       marketRates,
     },
     useCases: {

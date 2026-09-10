@@ -1,6 +1,7 @@
 import type { BudgetCategory } from "@/core/domain/budget/budget-category.entity";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
 import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
+import type { FgtsSettings } from "@/core/domain/fgts/fgts.entity";
 import type { RecurringItem } from "@/core/domain/expense/recurring-item.entity";
 import type { ExtraAmortization, Financing } from "@/core/domain/financing/financing.entity";
 import type { Goal } from "@/core/domain/goal/goal.entity";
@@ -79,6 +80,11 @@ export interface FinancingRepository {
   listExtraAmortizations(financingId: string): Promise<ExtraAmortization[]>;
   saveExtraAmortization(extra: ExtraAmortization): Promise<void>;
   deleteExtraAmortization(id: string): Promise<void>;
+}
+
+export interface FgtsRepository {
+  findByPlan(planId: string): Promise<FgtsSettings | null>;
+  save(settings: FgtsSettings): Promise<void>;
 }
 
 export interface CashAccountRepository {

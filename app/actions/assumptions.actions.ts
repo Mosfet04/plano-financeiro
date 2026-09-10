@@ -7,6 +7,7 @@ import type { PaymentMethod } from "@/core/domain/budget/budget-category.entity"
 import type { ItemDirection, ItemGroup } from "@/core/domain/expense/recurring-item.entity";
 import type { AmortizationSystem } from "@/core/domain/financing/financing.entity";
 import type { Indexer } from "@/core/domain/investment/investment.entity";
+import type { ExtraAmortizationEffect } from "@/core/domain/projection/amortization";
 import type { YieldMode } from "@/core/domain/plan/plan.entity";
 import { reais } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
@@ -196,6 +197,7 @@ const financingSchema = z.object({
   insuranceMonthly: z.number().min(0).max(100_000),
   firstInstallmentMonth: monthSchema,
   applyReferenceRate: z.boolean().default(false),
+  extraAmortizationEffect: z.enum(["SHORTEN_TERM", "REDUCE_INSTALLMENT"]).default("SHORTEN_TERM"),
 });
 
 export async function saveFinancing(input: z.input<typeof financingSchema>) {
@@ -219,6 +221,7 @@ export async function saveFinancing(input: z.input<typeof financingSchema>) {
     insuranceMonthly: reais(d.insuranceMonthly),
     firstInstallmentMonth: d.firstInstallmentMonth as YearMonth,
     applyReferenceRate: d.applyReferenceRate,
+    extraAmortizationEffect: d.extraAmortizationEffect as ExtraAmortizationEffect,
   });
 
   revalidateProjection();
@@ -385,6 +388,39 @@ export async function saveReserveTarget(input: z.input<typeof reserveSchema>) {
     planId: ctx.planId,
     effectiveFrom: parsed.data.effectiveFrom as YearMonth,
     months: parsed.data.months,
+  });
+
+  revalidateProjection();
+  return { ok: true as const };
+}
+
+const fgtsSchema = z.object({
+  enabled: z.boolean().default(false),
+  balance: z.number().min(0).max(100_000_000),
+  /** 8% é o que a lei manda para CLT por prazo indeterminado. */
+  depositRate: z.number().min(0).max(1),
+  annualYield: rate,
+  /** No SFH são 24 meses. Zero significaria saque único. */
+  withdrawalEveryMonths: z.number().int().min(0).max(120),
+  firstWithdrawalMonth: monthSchema,
+});
+
+export async function saveFgtsSettings(input: z.input<typeof fgtsSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = fgtsSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  const d = parsed.data;
+  await ctx.container.repos.fgts.save({
+    planId: ctx.planId,
+    enabled: d.enabled,
+    balance: reais(d.balance),
+    depositRate: d.depositRate,
+    annualYield: d.annualYield,
+    withdrawalEveryMonths: d.withdrawalEveryMonths,
+    firstWithdrawalMonth: d.firstWithdrawalMonth as YearMonth,
   });
 
   revalidateProjection();

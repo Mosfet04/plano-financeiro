@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import {
   deleteRecurringItem,
   saveBudgetCategory,
   saveCashAccount,
+  saveFgtsSettings,
   saveFinancing,
   saveIncomeSettings,
   saveInvestment,
@@ -71,6 +72,7 @@ export interface PremissasData {
     insuranceMonthly: number;
     firstInstallmentMonth: string;
     applyReferenceRate: boolean;
+    extraAmortizationEffect: "SHORTEN_TERM" | "REDUCE_INSTALLMENT";
   } | null;
   investments: Array<{
     id: string;
@@ -93,6 +95,14 @@ export interface PremissasData {
   }>;
   /** Data civil de hoje, para pré-preencher "saldo conferido em". */
   today: string;
+  fgts: {
+    enabled: boolean;
+    balance: number;
+    depositRate: number;
+    annualYield: number;
+    withdrawalEveryMonths: number;
+    firstWithdrawalMonth: string;
+  };
   yieldPolicy: {
     mode: "MANUAL" | "CDI_LINKED";
     manualAnnualNet: number;
@@ -162,6 +172,7 @@ export function PremissasClient({ data }: { data: PremissasData }) {
       <FinancingSection financing={data.financing} referenceRate={data.referenceRateMonthly} />
       <InvestmentsSection investments={data.investments} />
       <CashAccountsSection accounts={data.cashAccounts} today={data.today} />
+      <FgtsSection fgts={data.fgts} />
       <YieldSection policy={data.yieldPolicy} reserveTargets={data.reserveTargets} />
     </div>
   );
@@ -789,6 +800,8 @@ function CategorySheet({
   );
 }
 
+type FinancingForm = NonNullable<PremissasData["financing"]>;
+
 function FinancingSection({
   financing,
   referenceRate,
@@ -810,6 +823,7 @@ function FinancingSection({
           termMonths: 420,
           annualInterest: 0,
           system: "SAC" as const,
+          extraAmortizationEffect: "SHORTEN_TERM" as const,
           insuranceMonthly: 0,
           firstInstallmentMonth: "",
           applyReferenceRate: false,
@@ -888,7 +902,42 @@ function FinancingSection({
                 }
               />
             </Field>
+            <Field
+              label="Amortização extra encurta"
+              hint="Vale para o FGTS e para amortizações que você fizer do bolso."
+            >
+              <Select
+                value={form.extraAmortizationEffect}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    extraAmortizationEffect: event.target
+                      .value as FinancingForm["extraAmortizationEffect"],
+                  })
+                }
+              >
+                <option value="SHORTEN_TERM">O prazo (economiza mais juros)</option>
+                <option value="REDUCE_INSTALLMENT">A parcela (alivia o caixa do mês)</option>
+              </Select>
+            </Field>
           </div>
+
+          {form.system === "PRICE" && form.applyReferenceRate ? (
+            <div className="rounded-control bg-danger-bg flex gap-2 border border-[var(--danger)] p-3">
+              <AlertTriangle className="text-danger mt-0.5 size-4 shrink-0" />
+              <span className="text-fg flex flex-col gap-0.5 text-xs">
+                <span className="text-danger font-semibold">
+                  PRICE com TR faz o saldo devedor crescer
+                </span>
+                <span>
+                  A amortização da PRICE começa perto de R$ 123 num contrato de {form.termMonths}{" "}
+                  meses, e a TR corrige o saldo em uns R$ 444 por mês. A diferença é dívida subindo,
+                  ano após ano — a projeção mostra isso. A SAC não sofre disso porque amortiza mais
+                  que a correção desde a primeira parcela.
+                </span>
+              </span>
+            </div>
+          ) : null}
 
           <label className="rounded-control bg-surface-subtle flex items-start gap-2 p-3 text-sm">
             <input
@@ -1409,6 +1458,96 @@ function CashAccountSheet({
         )}
       </form>
     </Sheet>
+  );
+}
+
+/**
+ * O FGTS fica fora de "Caixa e caixinhas" de propósito: não é dinheiro que você
+ * pode gastar, e não conta para a reserva. A única coisa que ele faz no plano é
+ * abater o financiamento nos meses que a lei libera.
+ */
+function FgtsSection({ fgts }: { fgts: PremissasData["fgts"] }) {
+  const { pending, run } = useSaver();
+  const [form, setForm] = React.useState({ ...fgts, balance: toInput(fgts.balance) });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>FGTS</CardTitle>
+        <p className="text-fg-muted text-xs">
+          Não é caixa: não entra na reserva e não dá para gastar. O saldo cresce com o depósito do
+          empregador e, nos meses que a lei libera, o acumulado abate o financiamento.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => saveFgtsSettings(form), "FGTS atualizado.");
+          }}
+        >
+          <label className="rounded-control bg-surface-subtle flex items-start gap-2 p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-[var(--brand-primary)]"
+              checked={form.enabled}
+              onChange={(event) => setForm({ ...form, enabled: event.target.checked })}
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="font-semibold">Usar o FGTS para amortizar</span>
+              <span className="text-fg-muted text-xs">Desligado, ele não aparece na projeção.</span>
+            </span>
+          </label>
+
+          {form.enabled ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Saldo hoje"
+                hint="Atualize junto com as caixinhas, no fechamento do mês."
+              >
+                <MoneyInput
+                  value={form.balance}
+                  onChange={(balance) => setForm({ ...form, balance })}
+                />
+              </Field>
+              <Field label="Depósito mensal" hint="A lei manda 8% do salário bruto.">
+                <PercentInput
+                  value={form.depositRate}
+                  onChange={(depositRate) => setForm({ ...form, depositRate })}
+                />
+              </Field>
+              <Field
+                label="Rendimento ao ano"
+                hint="A lei manda 3% + TR. Some a TR aqui se quiser."
+              >
+                <PercentInput
+                  value={form.annualYield}
+                  onChange={(annualYield) => setForm({ ...form, annualYield })}
+                />
+              </Field>
+              <Field label="Pode usar a cada" hint="No SFH são 24 meses.">
+                <IntegerInput
+                  value={form.withdrawalEveryMonths}
+                  onChange={(withdrawalEveryMonths) => setForm({ ...form, withdrawalEveryMonths })}
+                />
+              </Field>
+              <Field label="Primeiro saque">
+                <Input
+                  type="month"
+                  value={form.firstWithdrawalMonth}
+                  onChange={(event) =>
+                    setForm({ ...form, firstWithdrawalMonth: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
+
+          <SaveBar pending={pending} />
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

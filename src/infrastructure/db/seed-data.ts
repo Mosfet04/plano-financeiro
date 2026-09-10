@@ -383,6 +383,7 @@ export function buildSpreadsheetPlan(options: SeedOptions): SeededPlan {
       system: AmortizationSystem.SAC,
       insuranceMonthly: reais(70),
       firstInstallmentMonth: MOVE_MONTH,
+      extraAmortizationEffect: "SHORTEN_TERM",
       // A planilha assume TR = 0; ligar aqui muda todos os números do plano.
       applyReferenceRate: false,
     },

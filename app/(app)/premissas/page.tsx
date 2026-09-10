@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { resolvePlanContext } from "@/app/actions/plan-context";
+import { monthOfISODate } from "@/core/domain/shared/month";
 import { PremissasClient, type PremissasData } from "./premissas-client";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,7 @@ export default async function PremissasPage() {
           insuranceMonthly: snapshot.financing.insuranceMonthly,
           firstInstallmentMonth: snapshot.financing.firstInstallmentMonth,
           applyReferenceRate: snapshot.financing.applyReferenceRate,
+          extraAmortizationEffect: snapshot.financing.extraAmortizationEffect,
         }
       : null,
     investments: snapshot.investments.map((investment) => ({
@@ -79,6 +81,16 @@ export default async function PremissasPage() {
       checkedOn: account.checkedOn,
     })),
     today: ctx.container.clock.today(),
+    fgts: {
+      enabled: snapshot.fgts?.enabled ?? false,
+      balance: snapshot.fgts?.balance ?? 0,
+      depositRate: snapshot.fgts?.depositRate ?? 0.08,
+      annualYield: snapshot.fgts?.annualYield ?? 0.03,
+      withdrawalEveryMonths: snapshot.fgts?.withdrawalEveryMonths ?? 24,
+      // Sem linha ainda, o padrão é o mês corrente — a pessoa ajusta.
+      firstWithdrawalMonth:
+        snapshot.fgts?.firstWithdrawalMonth ?? monthOfISODate(ctx.container.clock.today()),
+    },
     yieldPolicy: {
       mode: snapshot.yieldPolicy.mode,
       manualAnnualNet: snapshot.yieldPolicy.manualAnnualNet,

@@ -35,6 +35,12 @@ export const financings = pgTable(
     firstInstallmentMonth: text("first_installment_month").notNull(),
     /** Corrigir o saldo devedor pela TR. A planilha assume TR = 0. */
     applyReferenceRate: boolean("apply_reference_rate").notNull().default(false),
+    /** O que a amortização extra encurta: o prazo (padrão) ou a parcela. */
+    extraAmortizationEffect: text("extra_amortization_effect", {
+      enum: ["SHORTEN_TERM", "REDUCE_INSTALLMENT"],
+    })
+      .notNull()
+      .default("SHORTEN_TERM"),
   },
   (t) => [index("idx_financings_plan").on(t.planId)]
 );
@@ -51,6 +57,33 @@ export const extraAmortizations = pgTable(
   },
   (t) => [uniqueIndex("uq_extra_amortization_per_month").on(t.financingId, t.month)]
 );
+
+/**
+ * O FGTS como fonte de amortização periódica.
+ *
+ * Uma linha por plano. Não é `cash_accounts` de propósito: FGTS não é caixa —
+ * não dá para gastar, não conta para a reserva, e a única coisa que ele faz no
+ * modelo é abater o financiamento nos meses que a lei libera.
+ */
+export const fgtsSettings = pgTable("fgts_settings", {
+  planId: text("plan_id")
+    .primaryKey()
+    .references(() => plans.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  balanceCents: integer("balance_cents").notNull().default(0),
+  /** Fração do salário bruto depositada por mês. A lei manda 8%. */
+  depositRate: numeric("deposit_rate", { precision: 9, scale: 6, mode: "number" })
+    .notNull()
+    .default(0.08),
+  /** Rendimento ao ano. A lei manda 3% + TR; some a TR aqui se quiser. */
+  annualYield: numeric("annual_yield", { precision: 9, scale: 6, mode: "number" })
+    .notNull()
+    .default(0.03),
+  /** A cada quantos meses dá para usar. No SFH são 24. */
+  withdrawalEveryMonths: integer("withdrawal_every_months").notNull().default(24),
+  firstWithdrawalMonth: text("first_withdrawal_month").notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * Dinheiro líquido: conta corrente, caixinha do Nubank, cofrinho do PicPay.

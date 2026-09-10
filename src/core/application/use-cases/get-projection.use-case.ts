@@ -40,6 +40,7 @@ export function buildProjectionInput(
     investments: snapshot.investments,
     cashAccounts: snapshot.cashAccounts,
     closings: snapshot.closings,
+    fgts: snapshot.fgts,
     reserveTargets: snapshot.reserveTargets,
     yieldPolicy: snapshot.yieldPolicy,
     rates: snapshot.rates,

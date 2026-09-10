@@ -1,3 +1,4 @@
+import type { ExtraAmortizationEffect } from "../projection/amortization";
 import type { Cents } from "../shared/money";
 import type { YearMonth } from "../shared/month";
 
@@ -29,6 +30,14 @@ export interface Financing {
    * plano, então a escolha é explícita e sua.
    */
   readonly applyReferenceRate: boolean;
+  /**
+   * O que a amortização extra encurta: o prazo ou a parcela.
+   *
+   * Vale para os dois sistemas e para as duas fontes — a amortização digitada e
+   * o saque do FGTS. Reduzir o prazo economiza mais juros; reduzir a parcela
+   * alivia o caixa do mês.
+   */
+  readonly extraAmortizationEffect: ExtraAmortizationEffect;
 }
 
 /** Amortização extra num mês específico — sai do caixa e abate o saldo devedor. */

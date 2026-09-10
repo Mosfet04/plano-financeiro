@@ -37,6 +37,7 @@ function planSnapshot(rates: MarketRatesSnapshot | null, planId = "plan-1"): Pla
     investments: seeded.investments,
     cashAccounts: [],
     closings: [],
+    fgts: null,
     reserveTargets: seeded.reserveTargets,
     rates,
   };

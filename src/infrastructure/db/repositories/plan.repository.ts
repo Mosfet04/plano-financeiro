@@ -17,6 +17,7 @@ import {
   budgetCategories,
   cashAccounts,
   extraAmortizations,
+  fgtsSettings,
   financings,
   goals,
   incomeSettings,
@@ -32,6 +33,7 @@ import {
   toBudgetCategory,
   toCashAccount,
   toExtraAmortization,
+  toFgtsSettings,
   toFinancing,
   toGoal,
   toIncomeSettings,
@@ -149,8 +151,8 @@ export class DrizzlePlanRepository implements PlanRepository {
   }
 
   /**
-   * Carrega o plano inteiro de uma vez. São onze consultas em paralelo — mais
-   * barato que onze idas sequenciais e simples o bastante para não justificar
+   * Carrega o plano inteiro de uma vez. São doze consultas em paralelo — mais
+   * barato que doze idas sequenciais e simples o bastante para não justificar
    * uma view ou um join gigante.
    */
   async loadSnapshot(planId: string): Promise<PlanSnapshot | null> {
@@ -165,6 +167,7 @@ export class DrizzlePlanRepository implements PlanRepository {
       investmentRows,
       cashAccountRows,
       closingRows,
+      fgtsRow,
       reserveRows,
       ratesRow,
     ] = await Promise.all([
@@ -196,6 +199,7 @@ export class DrizzlePlanRepository implements PlanRepository {
         where: eq(monthClosings.planId, planId),
         orderBy: asc(monthClosings.month),
       }),
+      this.db.query.fgtsSettings.findFirst({ where: eq(fgtsSettings.planId, planId) }),
       this.db.query.reserveTargets.findMany({
         where: eq(reserveTargets.planId, planId),
         orderBy: asc(reserveTargets.effectiveFrom),
@@ -225,6 +229,7 @@ export class DrizzlePlanRepository implements PlanRepository {
       investments: investmentRows.map(toInvestment),
       cashAccounts: cashAccountRows.map(toCashAccount),
       closings: closingRows.map(toMonthClosing),
+      fgts: fgtsRow ? toFgtsSettings(fgtsRow) : null,
       reserveTargets: reserveRows.map(toReserveTarget),
       rates: ratesRow ? toMarketRates(ratesRow) : null,
     };

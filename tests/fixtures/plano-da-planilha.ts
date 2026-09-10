@@ -53,6 +53,8 @@ export function spreadsheetProjectionInput(): ProjectionInput {
     // cadastradas a reserva não rende — que é como ela calcula.
     cashAccounts: [],
     closings: [],
+    // A planilha não modela FGTS — ela nunca amortizou fora da parcela.
+    fgts: null,
     reserveTargets: seeded.reserveTargets,
     yieldPolicy: seeded.yieldPolicy,
     rates: ratesSnapshot,

@@ -1,5 +1,6 @@
 import type { BudgetCategory, PaymentMethod } from "@/core/domain/budget/budget-category.entity";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
+import type { FgtsSettings } from "@/core/domain/fgts/fgts.entity";
 import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type {
   ItemDirection,
@@ -12,6 +13,7 @@ import type {
   Financing,
 } from "@/core/domain/financing/financing.entity";
 import type { Goal, GoalStatus } from "@/core/domain/goal/goal.entity";
+import type { ExtraAmortizationEffect } from "@/core/domain/projection/amortization";
 import type { Indexer, Investment } from "@/core/domain/investment/investment.entity";
 import type { MarketRatesSnapshot, RateSource } from "@/core/domain/market/market-rates.entity";
 import type {
@@ -29,6 +31,7 @@ import type {
   budgetCategories,
   cashAccounts,
   extraAmortizations,
+  fgtsSettings,
   financings,
   goals,
   incomeSettings,
@@ -182,6 +185,19 @@ export function toFinancing(row: typeof financings.$inferSelect): Financing {
     insuranceMonthly: money(row.insuranceMonthlyCents),
     firstInstallmentMonth: month(row.firstInstallmentMonth),
     applyReferenceRate: row.applyReferenceRate,
+    extraAmortizationEffect: row.extraAmortizationEffect as ExtraAmortizationEffect,
+  };
+}
+
+export function toFgtsSettings(row: typeof fgtsSettings.$inferSelect): FgtsSettings {
+  return {
+    planId: row.planId,
+    enabled: row.enabled,
+    balance: money(row.balanceCents),
+    depositRate: row.depositRate,
+    annualYield: row.annualYield,
+    withdrawalEveryMonths: row.withdrawalEveryMonths,
+    firstWithdrawalMonth: month(row.firstWithdrawalMonth),
   };
 }
 

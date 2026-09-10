@@ -69,6 +69,7 @@ function build({
     investments: seeded.investments,
     cashAccounts,
     closings: existing ? [existing] : [],
+    fgts: null,
     reserveTargets: seeded.reserveTargets,
     rates: ratesSnapshot,
   };

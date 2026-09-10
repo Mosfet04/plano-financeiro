@@ -2,21 +2,31 @@ import { asc, desc, eq } from "drizzle-orm";
 
 import type {
   CashAccountRepository,
+  FgtsRepository,
   FinancingRepository,
   InvestmentRepository,
   MarketRatesRepository,
   NewMarketRates,
 } from "@/core/application/ports";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
+import type { FgtsSettings } from "@/core/domain/fgts/fgts.entity";
 import type { ExtraAmortization, Financing } from "@/core/domain/financing/financing.entity";
 import type { Investment } from "@/core/domain/investment/investment.entity";
 import type { MarketRatesSnapshot } from "@/core/domain/market/market-rates.entity";
 
 import type { Database } from "../client";
-import { cashAccounts, extraAmortizations, financings, investments, marketRates } from "../schema";
+import {
+  cashAccounts,
+  extraAmortizations,
+  fgtsSettings,
+  financings,
+  investments,
+  marketRates,
+} from "../schema";
 import {
   toCashAccount,
   toExtraAmortization,
+  toFgtsSettings,
   toFinancing,
   toInvestment,
   toMarketRates,
@@ -77,6 +87,35 @@ export class DrizzleFinancingRepository implements FinancingRepository {
 
   async deleteExtraAmortization(id: string): Promise<void> {
     await this.db.delete(extraAmortizations).where(eq(extraAmortizations.id, id));
+  }
+}
+
+export class DrizzleFgtsRepository implements FgtsRepository {
+  constructor(private readonly db: Database) {}
+
+  async findByPlan(planId: string): Promise<FgtsSettings | null> {
+    const row = await this.db.query.fgtsSettings.findFirst({
+      where: eq(fgtsSettings.planId, planId),
+    });
+    return row ? toFgtsSettings(row) : null;
+  }
+
+  async save(settings: FgtsSettings): Promise<void> {
+    const values = {
+      planId: settings.planId,
+      enabled: settings.enabled,
+      balanceCents: settings.balance,
+      depositRate: settings.depositRate,
+      annualYield: settings.annualYield,
+      withdrawalEveryMonths: settings.withdrawalEveryMonths,
+      firstWithdrawalMonth: settings.firstWithdrawalMonth,
+      updatedAt: new Date(),
+    };
+
+    await this.db
+      .insert(fgtsSettings)
+      .values(values)
+      .onConflictDoUpdate({ target: fgtsSettings.planId, set: values });
   }
 }
 
