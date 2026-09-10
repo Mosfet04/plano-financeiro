@@ -96,7 +96,6 @@ export class CreatePlanUseCase {
       manualAnnualNet: 0.11,
       cdiPercent: 1,
       incomeTaxRate: 0.15,
-      cashOnHand: cents(0),
     };
 
     const categories: BudgetCategory[] = STARTER_CATEGORIES.map(

@@ -52,6 +52,41 @@ export const extraAmortizations = pgTable(
   (t) => [uniqueIndex("uq_extra_amortization_per_month").on(t.financingId, t.month)]
 );
 
+/**
+ * Dinheiro líquido: conta corrente, caixinha do Nubank, cofrinho do PicPay.
+ * Sem `maturity_date` de propósito — liquidez diária não vence, então este
+ * saldo já está no caixa do primeiro mês da projeção em vez de "cair" nele.
+ *
+ * Substituiu `yield_policies.cash_on_hand_cents`, que era um escalar sem
+ * rendimento e sem como distinguir a conta parada da caixinha a 100% do CDI.
+ */
+export const cashAccounts = pgTable(
+  "cash_accounts",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    balanceCents: integer("balance_cents").notNull().default(0),
+    /** Nulo = não rende. */
+    indexer: text("indexer", {
+      enum: ["CDI_PCT", "PREFIXED", "IPCA_PLUS", "SELIC_PCT"],
+    }),
+    indexerValue: numeric("indexer_value", {
+      precision: 9,
+      scale: 6,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    taxExempt: boolean("tax_exempt").notNull().default(false),
+    /** Data civil "YYYY-MM-DD" do último saldo conferido. */
+    checkedOn: text("checked_on").notNull(),
+  },
+  (t) => [index("idx_cash_accounts_plan").on(t.planId)]
+);
+
 export const investments = pgTable(
   "investments",
   {

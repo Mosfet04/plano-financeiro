@@ -49,6 +49,10 @@ export function spreadsheetProjectionInput(): ProjectionInput {
     financing: seeded.financing,
     extraAmortizations: [],
     investments: seeded.investments,
+    // Vazio de propósito: a planilha não tem caixa de abertura, e sem contas
+    // cadastradas a reserva não rende — que é como ela calcula.
+    cashAccounts: [],
+    closings: [],
     reserveTargets: seeded.reserveTargets,
     yieldPolicy: seeded.yieldPolicy,
     rates: ratesSnapshot,

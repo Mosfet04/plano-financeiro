@@ -7,9 +7,11 @@ import { toast } from "sonner";
 
 import {
   deleteBudgetCategory,
+  deleteCashAccount,
   deleteInvestment,
   deleteRecurringItem,
   saveBudgetCategory,
+  saveCashAccount,
   saveFinancing,
   saveIncomeSettings,
   saveInvestment,
@@ -23,7 +25,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { IntegerInput, MoneyInput, PercentInput } from "@/components/ui/number-inputs";
 import { Sheet } from "@/components/ui/sheet";
 import { formatBRL, toReais, type Cents } from "@/core/domain/shared/money";
-import { formatMonth, type YearMonth } from "@/core/domain/shared/month";
+import { addMonths, formatMonth, monthOfISODate, type YearMonth } from "@/core/domain/shared/month";
 
 export interface PremissasData {
   income: {
@@ -80,12 +82,22 @@ export interface PremissasData {
     taxExempt: boolean;
     instruction: string | null;
   }>;
+  cashAccounts: Array<{
+    id: string;
+    name: string;
+    balance: number;
+    indexer: "CDI_PCT" | "PREFIXED" | "IPCA_PLUS" | "SELIC_PCT" | null;
+    indexerValue: number;
+    taxExempt: boolean;
+    checkedOn: string;
+  }>;
+  /** Data civil de hoje, para pré-preencher "saldo conferido em". */
+  today: string;
   yieldPolicy: {
     mode: "MANUAL" | "CDI_LINKED";
     manualAnnualNet: number;
     cdiPercent: number;
     incomeTaxRate: number;
-    cashOnHand: number;
     accrueInvestments: boolean;
   };
   reserveTargets: Array<{ id: string; effectiveFrom: string; months: number }>;
@@ -149,6 +161,7 @@ export function PremissasClient({ data }: { data: PremissasData }) {
       <CategoriesSection categories={data.categories} />
       <FinancingSection financing={data.financing} referenceRate={data.referenceRateMonthly} />
       <InvestmentsSection investments={data.investments} />
+      <CashAccountsSection accounts={data.cashAccounts} today={data.today} />
       <YieldSection policy={data.yieldPolicy} reserveTargets={data.reserveTargets} />
     </div>
   );
@@ -1125,6 +1138,280 @@ function InvestmentSheet({
   );
 }
 
+type CashAccountRow = PremissasData["cashAccounts"][number];
+
+const emptyCashAccount: CashAccountRow = {
+  id: "",
+  name: "",
+  balance: 0,
+  indexer: "CDI_PCT",
+  indexerValue: 1,
+  taxExempt: false,
+  checkedOn: "",
+};
+
+const cashRateLabel = (account: CashAccountRow) => {
+  if (account.indexer === null) return "não rende";
+  const value = account.indexerValue;
+  switch (account.indexer) {
+    case "CDI_PCT":
+      return `${(value * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% do CDI`;
+    case "SELIC_PCT":
+      return `${(value * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% da Selic`;
+    case "IPCA_PLUS":
+      return `IPCA + ${(value * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+    case "PREFIXED":
+      return `${(value * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% a.a.`;
+  }
+};
+
+function CashAccountsSection({
+  accounts,
+  today,
+}: {
+  accounts: PremissasData["cashAccounts"];
+  today: string;
+}) {
+  const { pending, run } = useSaver();
+  const [editing, setEditing] = React.useState<CashAccountRow | null>(null);
+  const total = accounts.reduce((sum, account) => sum + account.balance, 0);
+
+  // O saldo conferido mais recente é o que manda: a projeção recomeça no mês
+  // dele, porque ele já embute o que foi guardado nos meses vividos.
+  const conferredOn = accounts.reduce<string | null>(
+    (latest, account) =>
+      latest === null || account.checkedOn > latest ? account.checkedOn : latest,
+    null
+  );
+  const conferredMonth = conferredOn === null ? null : monthOfISODate(conferredOn);
+  const isStale = conferredMonth !== null && conferredMonth < monthOfISODate(today);
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between">
+        <div className="flex flex-col gap-1">
+          <CardTitle>Caixa e caixinhas</CardTitle>
+          <p className="text-fg-muted text-xs">
+            {money(total)} líquidos. Não vence — já é o caixa do primeiro mês, e rende ali mesmo.
+            Enche a reserva até o alvo e o que passa vira caixa de quitação.
+          </p>
+          {conferredMonth ? (
+            <p className="text-fg-muted text-xs">
+              Conferido em <strong>{formatMonth(conferredMonth)}</strong> — a projeção começa nesse
+              mês e volta a acumular em <strong>{formatMonth(addMonths(conferredMonth, 1))}</strong>
+              . O saldo já conta como o resultado do mês conferido.
+            </p>
+          ) : null}
+          {isStale ? (
+            <p className="text-warning text-xs font-semibold">
+              O saldo é de um mês que já passou. Confira e atualize para o plano partir da
+              realidade.
+            </p>
+          ) : null}
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setEditing({ ...emptyCashAccount, checkedOn: today })}
+        >
+          <Plus className="size-4" />
+          Nova
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1 px-2">
+        {accounts.length === 0 ? (
+          <p className="text-fg-muted px-2 py-2 text-sm">
+            Nenhuma conta cadastrada — a projeção começa com caixa zero.
+          </p>
+        ) : null}
+        {accounts.map((account) => (
+          <div
+            key={account.id}
+            className="rounded-control hover:bg-surface-hover flex items-start gap-3 px-2 py-2"
+          >
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm font-semibold">
+                {account.name}
+                {account.taxExempt ? (
+                  <Badge tone="success" className="ml-2">
+                    isenta
+                  </Badge>
+                ) : null}
+              </span>
+              <span className="text-fg-muted text-xs">
+                {cashRateLabel(account)} · conferido em{" "}
+                {new Date(`${account.checkedOn}T12:00:00Z`).toLocaleDateString("pt-BR")}
+              </span>
+            </div>
+            <span className="tabular shrink-0 text-sm font-semibold">{money(account.balance)}</span>
+            <div className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                aria-label={`Editar ${account.name}`}
+                onClick={() => setEditing(account)}
+                className="rounded-control text-fg-muted hover:bg-surface-hover hover:text-fg grid size-9 place-items-center"
+              >
+                <Pencil className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Remover ${account.name}`}
+                disabled={pending}
+                onClick={() =>
+                  run(() => deleteCashAccount({ id: account.id }), `"${account.name}" removida.`)
+                }
+                className="rounded-control text-fg-muted hover:bg-danger-bg hover:text-danger grid size-9 place-items-center disabled:opacity-40"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+
+      {editing ? (
+        <CashAccountSheet
+          account={editing}
+          pending={pending}
+          onClose={() => setEditing(null)}
+          onSave={(form) =>
+            run(async () => {
+              const result = await saveCashAccount({
+                id: form.id || undefined,
+                name: form.name,
+                balance: form.balance,
+                indexer: form.indexer,
+                indexerValue: form.indexerValue,
+                taxExempt: form.taxExempt,
+                checkedOn: form.checkedOn,
+              });
+              if (result.ok) setEditing(null);
+              return result;
+            }, "Saldo salvo.")
+          }
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function CashAccountSheet({
+  account,
+  pending,
+  onClose,
+  onSave,
+}: {
+  account: CashAccountRow;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (account: CashAccountRow) => void;
+}) {
+  const [form, setForm] = React.useState({ ...account, balance: toInput(account.balance) });
+  const isPercentOfIndex = form.indexer === "CDI_PCT" || form.indexer === "SELIC_PCT";
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={account.id ? "Editar conta" : "Nova conta de caixa"}
+      footer={
+        <>
+          <Button type="button" variant="subtle" size="touch" className="flex-1" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            form="conta-caixa-form"
+            variant="primary"
+            size="touch"
+            className="flex-1"
+            disabled={pending}
+          >
+            {pending ? "Salvando…" : "Salvar"}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="conta-caixa-form"
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!form.name.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(form.checkedOn)) {
+            toast.error("Nome e data do saldo conferido são obrigatórios.");
+            return;
+          }
+          onSave(form);
+        }}
+      >
+        <Field label="Nome">
+          <Input
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            placeholder="Caixinha Nubank"
+          />
+        </Field>
+        <Field label="Saldo hoje">
+          <MoneyInput value={form.balance} onChange={(balance) => setForm({ ...form, balance })} />
+        </Field>
+        <Field
+          label="Saldo conferido em"
+          hint="A projeção recomeça neste mês. Confira ao fechar o mês: o saldo já conta como o resultado dele."
+        >
+          <Input
+            type="date"
+            value={form.checkedOn}
+            onChange={(event) => setForm({ ...form, checkedOn: event.target.value })}
+          />
+        </Field>
+        <Field label="Rendimento">
+          <Select
+            value={form.indexer ?? "NONE"}
+            onChange={(event) =>
+              setForm({
+                ...form,
+                indexer:
+                  event.target.value === "NONE"
+                    ? null
+                    : (event.target.value as Exclude<CashAccountRow["indexer"], null>),
+              })
+            }
+          >
+            <option value="NONE">Não rende (conta corrente)</option>
+            {Object.entries(INDEXER_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {form.indexer === null ? null : (
+          <>
+            <Field
+              label={isPercentOfIndex ? "Percentual do índice" : "Taxa ao ano"}
+              hint={isPercentOfIndex ? "100% do CDI → digite 100." : undefined}
+            >
+              <PercentInput
+                value={form.indexerValue}
+                onChange={(indexerValue) => setForm({ ...form, indexerValue })}
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--brand-primary)]"
+                checked={form.taxExempt}
+                onChange={(event) => setForm({ ...form, taxExempt: event.target.checked })}
+              />
+              Isenta de IR (LCI/LCA, poupança)
+            </label>
+          </>
+        )}
+      </form>
+    </Sheet>
+  );
+}
+
 function YieldSection({
   policy,
   reserveTargets,
@@ -1133,14 +1420,16 @@ function YieldSection({
   reserveTargets: PremissasData["reserveTargets"];
 }) {
   const { pending, run } = useSaver();
-  const [form, setForm] = React.useState({ ...policy, cashOnHand: toInput(policy.cashOnHand) });
+  const [form, setForm] = React.useState({ ...policy });
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Reserva e rendimento</CardTitle>
         <p className="text-fg-muted text-xs">
-          No modo ligado ao CDI, a rotina de quinta-feira mexe direto na data de quitação.
+          Vale para o caixa de quitação — dinheiro que ainda vai entrar. O que já está em conta
+          rende pela taxa da própria conta, em <strong>Caixa e caixinhas</strong>. No modo ligado ao
+          CDI, a rotina de quinta-feira mexe direto na data de quitação.
         </p>
       </CardHeader>
       <CardContent>
@@ -1186,12 +1475,6 @@ function YieldSection({
                 </Field>
               </>
             )}
-            <Field label="Caixa livre hoje" hint="Fora as aplicações listadas acima.">
-              <MoneyInput
-                value={form.cashOnHand}
-                onChange={(cashOnHand) => setForm({ ...form, cashOnHand })}
-              />
-            </Field>
           </div>
 
           <label className="rounded-control bg-surface-subtle flex items-start gap-2 p-3 text-sm">

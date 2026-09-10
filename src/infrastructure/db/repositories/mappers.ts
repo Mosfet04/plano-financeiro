@@ -1,4 +1,6 @@
 import type { BudgetCategory, PaymentMethod } from "@/core/domain/budget/budget-category.entity";
+import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
+import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type {
   ItemDirection,
   ItemGroup,
@@ -25,11 +27,13 @@ import type { Transaction, TransactionKind } from "@/core/domain/transaction/tra
 
 import type {
   budgetCategories,
+  cashAccounts,
   extraAmortizations,
   financings,
   goals,
   incomeSettings,
   investments,
+  monthClosings,
   marketRates,
   plans,
   recurringItems,
@@ -85,7 +89,32 @@ export function toYieldPolicy(row: typeof yieldPolicies.$inferSelect): YieldPoli
     manualAnnualNet: row.manualAnnualNet,
     cdiPercent: row.cdiPercent,
     incomeTaxRate: row.incomeTaxRate,
-    cashOnHand: money(row.cashOnHandCents),
+  };
+}
+
+export function toCashAccount(row: typeof cashAccounts.$inferSelect): CashAccount {
+  return {
+    id: row.id,
+    planId: row.planId,
+    name: row.name,
+    balance: money(row.balanceCents),
+    indexer: row.indexer as Indexer | null,
+    indexerValue: row.indexerValue,
+    taxExempt: row.taxExempt,
+    checkedOn: row.checkedOn,
+  };
+}
+
+export function toMonthClosing(row: typeof monthClosings.$inferSelect): MonthClosing {
+  return {
+    id: row.id,
+    planId: row.planId,
+    month: month(row.month),
+    leftover: money(row.leftoverCents),
+    planTarget: money(row.planTargetCents),
+    cash: money(row.cashCents),
+    closedAt: row.closedAt,
+    note: row.note,
   };
 }
 

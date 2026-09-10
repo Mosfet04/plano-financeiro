@@ -368,7 +368,6 @@ export function buildSpreadsheetPlan(options: SeedOptions): SeededPlan {
       manualAnnualNet: 0.11,
       cdiPercent: 1.0,
       incomeTaxRate: 0.15,
-      cashOnHand: reais(0),
     },
     accrueInvestments: liveMode,
     recurringItems,

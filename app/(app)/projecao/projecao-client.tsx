@@ -27,6 +27,7 @@ export interface ProjectionRow {
   income: number;
   leftover: number;
   maturedInvestments: number;
+  cashYield: number;
   reserve: number;
   payoffCash: number;
   debt: number;
@@ -41,6 +42,7 @@ const COLUMNS: ReadonlyArray<{ key: keyof ProjectionRow; label: string }> = [
   { key: "goals", label: "Metas" },
   { key: "leftover", label: "Sobrou" },
   { key: "maturedInvestments", label: "Venceu" },
+  { key: "cashYield", label: "Rendeu" },
   { key: "reserve", label: "Reserva" },
   { key: "payoffCash", label: "Caixa" },
   { key: "debt", label: "Falta pagar" },

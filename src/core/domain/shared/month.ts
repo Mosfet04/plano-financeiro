@@ -94,3 +94,8 @@ export function formatMonth(value: YearMonth): string {
 export function daysInMonth(value: YearMonth): number {
   return new Date(Date.UTC(year(value), monthNumber(value), 0)).getUTCDate();
 }
+
+/** Última data civil do mês, "YYYY-MM-DD" — o corte de um mês fechado. */
+export function endOfMonthDate(value: YearMonth): string {
+  return `${value}-${String(daysInMonth(value)).padStart(2, "0")}`;
+}

@@ -5,6 +5,7 @@ import type { Clock, IdGenerator } from "@/core/application/ports";
 import { CloseMonthUseCase } from "@/core/application/use-cases/close-month.use-case";
 import { CreatePlanUseCase } from "@/core/application/use-cases/create-plan.use-case";
 import { GetProjectionUseCase } from "@/core/application/use-cases/get-projection.use-case";
+import { SettleMonthUseCase } from "@/core/application/use-cases/settle-month.use-case";
 import { RefreshMarketRatesUseCase } from "@/core/application/use-cases/refresh-market-rates.use-case";
 import { TZ } from "@/infra/config/time";
 import { getDb } from "@/infra/db/client";
@@ -15,11 +16,15 @@ import {
   DrizzleTransactionRepository,
 } from "@/infra/db/repositories/budget.repository";
 import {
+  DrizzleCashAccountRepository,
   DrizzleFinancingRepository,
   DrizzleInvestmentRepository,
   DrizzleMarketRatesRepository,
 } from "@/infra/db/repositories/finance.repository";
-import { DrizzlePlanRepository } from "@/infra/db/repositories/plan.repository";
+import {
+  DrizzleMonthClosingRepository,
+  DrizzlePlanRepository,
+} from "@/infra/db/repositories/plan.repository";
 import { BcbSgsProvider } from "@/infra/market/bcb-sgs.provider";
 
 const systemClock: Clock = {
@@ -45,8 +50,12 @@ export function buildContainer() {
   const transactions = new DrizzleTransactionRepository(db);
   const financings = new DrizzleFinancingRepository(db);
   const investments = new DrizzleInvestmentRepository(db);
+  const cashAccounts = new DrizzleCashAccountRepository(db);
+  const closings = new DrizzleMonthClosingRepository(db);
   const marketRates = new DrizzleMarketRatesRepository(db);
   const ratesProvider = new BcbSgsProvider();
+
+  const closeMonth = new CloseMonthUseCase(plans, transactions, systemClock);
 
   return {
     db,
@@ -60,12 +69,15 @@ export function buildContainer() {
       transactions,
       financings,
       investments,
+      cashAccounts,
+      closings,
       marketRates,
     },
     useCases: {
       getProjection: new GetProjectionUseCase(plans, systemClock),
       createPlan: new CreatePlanUseCase(plans, uuidGenerator, systemClock),
-      closeMonth: new CloseMonthUseCase(plans, transactions, systemClock),
+      closeMonth,
+      settleMonth: new SettleMonthUseCase(plans, closeMonth, closings, uuidGenerator, systemClock),
       refreshMarketRates: new RefreshMarketRatesUseCase(
         marketRates,
         ratesProvider,

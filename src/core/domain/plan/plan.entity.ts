@@ -67,6 +67,4 @@ export interface YieldPolicy {
   readonly cdiPercent: number;
   /** Alíquota de IR aplicada sobre o rendimento bruto no modo CDI_LINKED. */
   readonly incomeTaxRate: number;
-  /** Caixa livre em conta hoje, fora as aplicações. */
-  readonly cashOnHand: Cents;
 }

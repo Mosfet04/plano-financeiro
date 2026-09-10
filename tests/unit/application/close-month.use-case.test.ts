@@ -33,6 +33,8 @@ function snapshotFrom(seeded: ReturnType<typeof seed>): PlanSnapshot {
     financing: seeded.financing,
     extraAmortizations: [],
     investments: seeded.investments,
+    cashAccounts: [],
+    closings: [],
     reserveTargets: seeded.reserveTargets,
     rates: ratesSnapshot,
   };

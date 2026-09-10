@@ -15,6 +15,20 @@
       "when": 1788105202205,
       "tag": "0001_odd_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788997357191,
+      "tag": "0002_normal_spencer_smythe",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788998847601,
+      "tag": "0003_youthful_supernaut",
+      "breakpoints": true
     }
   ]
 }

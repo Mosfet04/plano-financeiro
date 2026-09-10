@@ -1,4 +1,6 @@
 import type { BudgetCategory } from "../budget/budget-category.entity";
+import type { CashAccount } from "../cash/cash-account.entity";
+import type { MonthClosing } from "../closing/month-closing.entity";
 import type { RecurringItem } from "../expense/recurring-item.entity";
 import type { ExtraAmortization, Financing } from "../financing/financing.entity";
 import type { Goal } from "../goal/goal.entity";
@@ -21,6 +23,8 @@ export interface PlanSnapshot {
   readonly financing: Financing | null;
   readonly extraAmortizations: readonly ExtraAmortization[];
   readonly investments: readonly Investment[];
+  readonly cashAccounts: readonly CashAccount[];
+  readonly closings: readonly MonthClosing[];
   readonly reserveTargets: readonly ReserveTarget[];
   readonly rates: MarketRatesSnapshot | null;
 }

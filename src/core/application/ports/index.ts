@@ -1,4 +1,6 @@
 import type { BudgetCategory } from "@/core/domain/budget/budget-category.entity";
+import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
+import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type { RecurringItem } from "@/core/domain/expense/recurring-item.entity";
 import type { ExtraAmortization, Financing } from "@/core/domain/financing/financing.entity";
 import type { Goal } from "@/core/domain/goal/goal.entity";
@@ -77,6 +79,20 @@ export interface FinancingRepository {
   listExtraAmortizations(financingId: string): Promise<ExtraAmortization[]>;
   saveExtraAmortization(extra: ExtraAmortization): Promise<void>;
   deleteExtraAmortization(id: string): Promise<void>;
+}
+
+export interface CashAccountRepository {
+  listByPlan(planId: string): Promise<CashAccount[]>;
+  findById(id: string): Promise<CashAccount | null>;
+  save(account: CashAccount): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
+export interface MonthClosingRepository {
+  listByPlan(planId: string): Promise<MonthClosing[]>;
+  findByMonth(planId: string, month: YearMonth): Promise<MonthClosing | null>;
+  save(closing: MonthClosing): Promise<void>;
+  delete(id: string): Promise<void>;
 }
 
 export interface InvestmentRepository {

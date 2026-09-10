@@ -1,11 +1,13 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { CheckCircle2, Lock, Trash2, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { reopenMonth, settleMonth } from "@/app/actions/closing.actions";
 import { deleteTransaction } from "@/app/actions/transaction.actions";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Meter } from "@/components/ui/meter";
@@ -16,6 +18,17 @@ import { cn } from "@/lib/utils";
 
 export interface MesData {
   month: YearMonth;
+  /** Preenchido quando o mês já foi fechado — os números congelados. */
+  settled: {
+    leftover: number;
+    planTarget: number;
+    cash: number;
+    closedAt: string;
+  } | null;
+  /** Falso para um mês que ainda não começou. */
+  canSettle: boolean;
+  /** Série "o plano previu × eu fiz", do mais recente para trás. */
+  history: Array<{ month: string; leftover: number; planTarget: number; cash: number }>;
   categories: Array<{
     id: string;
     name: string;
@@ -73,6 +86,8 @@ export function MesClient({ data }: { data: MesData }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <SettleBar data={data} />
+
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
           label="Sobrou este mês"
@@ -233,6 +248,8 @@ export function MesClient({ data }: { data: MesData }) {
           )}
         </CardContent>
       </Card>
+
+      <HistoryCard history={data.history} />
     </div>
   );
 }
@@ -251,5 +268,116 @@ function Line({ label, value, strong }: { label: string; value: number; strong?:
         {money(value)}
       </span>
     </div>
+  );
+}
+
+/**
+ * Fechar o mês é o que diz à projeção que ele é história. Enquanto está aberto,
+ * o plano ainda projeta em cima dele — e o caixa que você já conferiu conta o
+ * mesmo dinheiro duas vezes.
+ */
+function SettleBar({ data }: { data: MesData }) {
+  const router = useRouter();
+  const [pending, setPending] = React.useState(false);
+
+  async function run(action: () => Promise<{ ok: boolean; error?: string }>, done: string) {
+    setPending(true);
+    const result = await action();
+    setPending(false);
+
+    if (!result.ok) {
+      toast.error(result.error ?? "Não deu certo.");
+      return;
+    }
+    toast.success(done);
+    router.refresh();
+  }
+
+  if (data.settled) {
+    const slack = data.settled.leftover - data.settled.planTarget;
+    return (
+      <div className="rounded-card bg-surface-subtle flex flex-wrap items-center gap-3 border border-[var(--stroke)] p-4">
+        <Lock className="text-fg-muted size-5 shrink-0" />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <p className="text-sm font-semibold">{formatMonth(data.month)} está fechado</p>
+          <p className="text-fg-muted text-xs">
+            Congelado em {money(data.settled.leftover)} de sobra contra{" "}
+            {money(data.settled.planTarget)} de meta ({slack >= 0 ? "+" : ""}
+            {money(slack)}). A projeção começa depois deste mês.
+          </p>
+        </div>
+        <Button
+          variant="subtle"
+          size="sm"
+          disabled={pending}
+          onClick={() => run(() => reopenMonth({ month: data.month }), "Mês reaberto.")}
+        >
+          <Undo2 className="size-4" />
+          Reabrir
+        </Button>
+      </div>
+    );
+  }
+
+  if (!data.canSettle) return null;
+
+  return (
+    <div className="rounded-card bg-surface-subtle flex flex-wrap items-center gap-3 border border-[var(--stroke)] p-4">
+      <CheckCircle2 className="text-brand size-5 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="text-sm font-semibold">{formatMonth(data.month)} ainda está aberto</p>
+        <p className="text-fg-muted text-xs">
+          Fechar congela {money(data.leftover)} de sobra e tira o mês da projeção. Confira os saldos
+          das caixinhas antes — o plano parte deles.
+        </p>
+      </div>
+      <Button
+        variant="primary"
+        size="sm"
+        disabled={pending}
+        onClick={() => run(() => settleMonth({ month: data.month }), "Mês fechado.")}
+      >
+        Fechar o mês
+      </Button>
+    </div>
+  );
+}
+
+/** A série que só existe porque os fechamentos são congelados. */
+function HistoryCard({ history }: { history: MesData["history"] }) {
+  if (history.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>O plano previu × eu fiz</CardTitle>
+        <p className="text-fg-muted text-xs">
+          Cada mês fechado, com a sobra que aconteceu contra a que o plano esperava na época.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1.5 text-sm">
+        {history.map((entry) => {
+          const slack = entry.leftover - entry.planTarget;
+          return (
+            <div key={entry.month} className="flex items-baseline justify-between gap-3">
+              <span className="text-fg-muted w-20 shrink-0">
+                {formatMonth(entry.month as YearMonth)}
+              </span>
+              <span className="tabular text-fg-muted shrink-0 text-xs">
+                caixa {money(entry.cash)}
+              </span>
+              <span className="tabular flex-1 text-right">
+                {money(entry.leftover)}{" "}
+                <span className="text-fg-muted text-xs">/ {money(entry.planTarget)}</span>
+              </span>
+              <Badge tone={slack >= 0 ? "success" : "danger"}>
+                {slack >= 0 ? "+" : ""}
+                {money(slack)}
+              </Badge>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }

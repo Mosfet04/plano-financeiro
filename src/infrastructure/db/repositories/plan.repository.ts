@@ -1,7 +1,8 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
-import type { NewPlanData, PlanRepository } from "@/core/application/ports";
+import type { MonthClosingRepository, NewPlanData, PlanRepository } from "@/core/application/ports";
+import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
 import type {
   IncomeSettings,
@@ -9,16 +10,19 @@ import type {
   ReserveTarget,
   YieldPolicy,
 } from "@/core/domain/plan/plan.entity";
+import type { YearMonth } from "@/core/domain/shared/month";
 
 import type { Database } from "../client";
 import {
   budgetCategories,
+  cashAccounts,
   extraAmortizations,
   financings,
   goals,
   incomeSettings,
   investments,
   marketRates,
+  monthClosings,
   plans,
   recurringItems,
   reserveTargets,
@@ -26,12 +30,14 @@ import {
 } from "../schema";
 import {
   toBudgetCategory,
+  toCashAccount,
   toExtraAmortization,
   toFinancing,
   toGoal,
   toIncomeSettings,
   toInvestment,
   toMarketRates,
+  toMonthClosing,
   toPlan,
   toRecurringItem,
   toReserveTarget,
@@ -93,7 +99,6 @@ export class DrizzlePlanRepository implements PlanRepository {
         manualAnnualNet: yieldPolicy.manualAnnualNet,
         cdiPercent: yieldPolicy.cdiPercent,
         incomeTaxRate: yieldPolicy.incomeTaxRate,
-        cashOnHandCents: yieldPolicy.cashOnHand,
       }),
     ];
 
@@ -144,8 +149,8 @@ export class DrizzlePlanRepository implements PlanRepository {
   }
 
   /**
-   * Carrega o plano inteiro de uma vez. São nove consultas em paralelo — mais
-   * barato que nove idas sequenciais e simples o bastante para não justificar
+   * Carrega o plano inteiro de uma vez. São onze consultas em paralelo — mais
+   * barato que onze idas sequenciais e simples o bastante para não justificar
    * uma view ou um join gigante.
    */
   async loadSnapshot(planId: string): Promise<PlanSnapshot | null> {
@@ -158,6 +163,8 @@ export class DrizzlePlanRepository implements PlanRepository {
       goalRows,
       financingRow,
       investmentRows,
+      cashAccountRows,
+      closingRows,
       reserveRows,
       ratesRow,
     ] = await Promise.all([
@@ -180,6 +187,14 @@ export class DrizzlePlanRepository implements PlanRepository {
       this.db.query.investments.findMany({
         where: eq(investments.planId, planId),
         orderBy: asc(investments.maturityDate),
+      }),
+      this.db.query.cashAccounts.findMany({
+        where: eq(cashAccounts.planId, planId),
+        orderBy: desc(cashAccounts.balanceCents),
+      }),
+      this.db.query.monthClosings.findMany({
+        where: eq(monthClosings.planId, planId),
+        orderBy: asc(monthClosings.month),
       }),
       this.db.query.reserveTargets.findMany({
         where: eq(reserveTargets.planId, planId),
@@ -208,6 +223,8 @@ export class DrizzlePlanRepository implements PlanRepository {
       financing: financingRow ? toFinancing(financingRow) : null,
       extraAmortizations: extras.map(toExtraAmortization),
       investments: investmentRows.map(toInvestment),
+      cashAccounts: cashAccountRows.map(toCashAccount),
+      closings: closingRows.map(toMonthClosing),
       reserveTargets: reserveRows.map(toReserveTarget),
       rates: ratesRow ? toMarketRates(ratesRow) : null,
     };
@@ -243,7 +260,6 @@ export class DrizzlePlanRepository implements PlanRepository {
       manualAnnualNet: policy.manualAnnualNet,
       cdiPercent: policy.cdiPercent,
       incomeTaxRate: policy.incomeTaxRate,
-      cashOnHandCents: policy.cashOnHand,
       accrueInvestments: accrueInvestments ? 1 : 0,
       updatedAt: new Date(),
     };
@@ -273,6 +289,58 @@ export class DrizzlePlanRepository implements PlanRepository {
 
   async deleteReserveTarget(id: string): Promise<void> {
     await this.db.delete(reserveTargets).where(eq(reserveTargets.id, id));
+  }
+}
+
+export class DrizzleMonthClosingRepository implements MonthClosingRepository {
+  constructor(private readonly db: Database) {}
+
+  async listByPlan(planId: string): Promise<MonthClosing[]> {
+    const rows = await this.db.query.monthClosings.findMany({
+      where: eq(monthClosings.planId, planId),
+      orderBy: desc(monthClosings.month),
+    });
+    return rows.map(toMonthClosing);
+  }
+
+  async findByMonth(planId: string, month: YearMonth): Promise<MonthClosing | null> {
+    const row = await this.db.query.monthClosings.findFirst({
+      where: and(eq(monthClosings.planId, planId), eq(monthClosings.month, month)),
+    });
+    return row ? toMonthClosing(row) : null;
+  }
+
+  async save(closing: MonthClosing): Promise<void> {
+    const values = {
+      id: closing.id,
+      planId: closing.planId,
+      month: closing.month,
+      leftoverCents: closing.leftover,
+      planTargetCents: closing.planTarget,
+      cashCents: closing.cash,
+      closedAt: closing.closedAt,
+      note: closing.note,
+    };
+
+    // Refechar o mesmo mês sobrescreve: reabrir e fechar de novo é o fluxo
+    // normal quando um lançamento atrasado aparece.
+    await this.db
+      .insert(monthClosings)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [monthClosings.planId, monthClosings.month],
+        set: {
+          leftoverCents: values.leftoverCents,
+          planTargetCents: values.planTargetCents,
+          cashCents: values.cashCents,
+          closedAt: values.closedAt,
+          note: values.note,
+        },
+      });
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.delete(monthClosings).where(eq(monthClosings.id, id));
   }
 }
 

@@ -1,4 +1,6 @@
 import type { BudgetCategory } from "../budget/budget-category.entity";
+import type { CashAccount } from "../cash/cash-account.entity";
+import { lastClosedMonth, type MonthClosing } from "../closing/month-closing.entity";
 import { ItemDirection, ItemGroup, type RecurringItem } from "../expense/recurring-item.entity";
 import {
   AmortizationSystem,
@@ -22,6 +24,8 @@ import {
 } from "../shared/money";
 import {
   addMonths,
+  endOfMonthDate,
+  isBefore,
   isSameOrAfter,
   isWithin,
   monthNumber,
@@ -32,7 +36,13 @@ import {
 import { interestOn, monthlyInterestRate, priceInstallment, sacAmortization } from "./amortization";
 import { evaluateAmortization, type AmortizationAdvice } from "./amortization-advice";
 import { plrGross, plrNet } from "./plr-tax";
-import { investmentAnnualNet, monthlyFromAnnual, netAnnualYield } from "./yield";
+import {
+  blendedCashAnnualNet,
+  investmentAnnualNet,
+  monthlyFromAnnual,
+  netAnnualYield,
+  totalCashBalance,
+} from "./yield";
 
 export interface ProjectionOptions {
   /**
@@ -58,6 +68,10 @@ export interface ProjectionInput {
   readonly financing: Financing | null;
   readonly extraAmortizations: readonly ExtraAmortization[];
   readonly investments: readonly Investment[];
+  /** Onde o dinheiro líquido está hoje. A soma dos saldos é o caixa de abertura. */
+  readonly cashAccounts: readonly CashAccount[];
+  /** Meses já fechados. A projeção começa depois do último deles. */
+  readonly closings: readonly MonthClosing[];
   readonly reserveTargets: readonly ReserveTarget[];
   readonly yieldPolicy: YieldPolicy;
   readonly rates: MarketRatesSnapshot | null;
@@ -79,6 +93,8 @@ export interface MonthProjection {
   readonly toPayoffCash: Cents;
   readonly reserve: Cents;
   readonly payoffCash: Cents;
+  /** Rendimento creditado no mês, reserva e caixa de quitação somados. */
+  readonly cashYield: Cents;
   readonly debt: Cents;
   /** Só a parcela, isolada da moradia — útil na tela. */
   readonly installment: Cents;
@@ -105,7 +121,21 @@ export interface ProjectionSummary {
    * Zero quando o plano já fecha.
    */
   readonly monthlyTopUpToFixHole: Cents;
+  /** Caixa que já existe hoje: a soma dos saldos das contas cadastradas. */
+  readonly openingCash: Cents;
+  /**
+   * Primeiro mês projetado. Vem do último mês fechado (ou, na falta dele, do
+   * saldo conferido), nunca antes do início do plano — o passado não é
+   * replayado porque o caixa de hoje já o contém.
+   */
+  readonly startMonth: YearMonth;
+  /** Último mês fechado, ou nulo se nenhum foi. */
+  readonly closedThrough: YearMonth | null;
+  /** Data civil já embutida no saldo de caixa. Nulo quando não há evidência. */
+  readonly settledOn: string | null;
   readonly netAnnualYield: number;
+  /** Taxa a que a reserva capitaliza — média das contas, ponderada pelo saldo. */
+  readonly cashAnnualYield: number;
   /**
    * Vale tirar do caixa e amortizar hoje? Nulo quando não há dívida ou não há
    * caixa livre — aviso sem ação possível é barulho.
@@ -171,6 +201,66 @@ function maturityValue(investment: Investment, input: ProjectionInput): Cents {
   return cents(investment.amount * Math.pow(1 + monthlyFromAnnual(annual), months));
 }
 
+/**
+ * Até que data civil o passado já está dentro do saldo de caixa.
+ *
+ * É a data do saldo conferido — literalmente o que ela significa. O fim do
+ * último mês fechado entra no `max` para o caso de o fechamento ser mais novo
+ * que a última conferência; aí o saldo está velho, e o plano subestima o caixa
+ * em vez de contar duas vezes o que já entrou.
+ *
+ * É contra esta data que se decide se uma aplicação já venceu para dentro do
+ * saldo. Por data e não por mês: um mês fechado e um saldo conferido no dia 9
+ * cortam em pontos diferentes do mesmo mês.
+ */
+function settledThroughDate(input: ProjectionInput): string | null {
+  const conferredOn = latestConferredOn(input.cashAccounts);
+  const closed = lastClosedMonth(input.closings);
+  const closedThroughDate = closed === null ? null : endOfMonthDate(closed);
+
+  if (conferredOn === null) return closedThroughDate;
+  if (closedThroughDate === null) return conferredOn;
+  return conferredOn > closedThroughDate ? conferredOn : closedThroughDate;
+}
+
+/**
+ * Primeiro mês que a projeção ainda precisa projetar.
+ *
+ * Um mês fechado é história declarada: o caixa já contém o resultado dele
+ * inteiro, e a projeção pula para o seguinte. Sem nenhum fechamento, o saldo
+ * conferido é a evidência que existe, e vale o mês dele — ele está no meio do
+ * caminho, mas começar antes seria replayar meses que o saldo já contém.
+ *
+ * Sem fechamento e sem conta, o plano roda desde o começo — é o que mantém a
+ * paridade com a planilha.
+ */
+function resumeMonth(input: ProjectionInput): YearMonth {
+  const closed = lastClosedMonth(input.closings);
+  if (closed !== null) return addMonths(closed, 1);
+
+  const conferredOn = latestConferredOn(input.cashAccounts);
+  if (conferredOn !== null) return monthOfISODate(conferredOn);
+
+  return input.startMonth;
+}
+
+/**
+ * Data civil do saldo conferido mais recente, ou nulo quando não há conta
+ * cadastrada.
+ *
+ * Vale a **mais recente** entre as contas: começar antes dela contaria em dobro
+ * o dinheiro da conta mais fresca. A conta mais velha fica defasada — o plano
+ * subestima o caixa em vez de inventar caixa, que é o erro certo a cometer num
+ * plano cujo objetivo é não ficar no vermelho.
+ */
+function latestConferredOn(accounts: readonly CashAccount[]): string | null {
+  let latest: string | null = null;
+  for (const account of accounts) {
+    if (latest === null || account.checkedOn > latest) latest = account.checkedOn;
+  }
+  return latest;
+}
+
 function reserveMonthsFor(targets: readonly ReserveTarget[], month: YearMonth): number {
   const applicable = targets
     .filter((t) => isSameOrAfter(month, t.effectiveFrom))
@@ -198,7 +288,11 @@ interface BaseRow {
  * de vida do primeiro mês COM parcela, que só se conhece depois de percorrer os
  * meses.
  */
-function computeBaseRows(input: ProjectionInput): BaseRow[] {
+function computeBaseRows(
+  input: ProjectionInput,
+  startMonth: YearMonth,
+  settledOn: string | null
+): BaseRow[] {
   const { financing, income } = input;
   const monthlyRate = financing ? monthlyInterestRate(financing.annualInterest) : 0;
   const fixedAmortization = financing
@@ -218,8 +312,14 @@ function computeBaseRows(input: ProjectionInput): BaseRow[] {
   for (const extra of input.extraAmortizations) {
     extraByMonth.set(extra.month, addCents(extraByMonth.get(extra.month) ?? ZERO, extra.amount));
   }
+  // Aplicação que venceu ATÉ a data já liquidada está dentro do saldo de caixa:
+  // o dinheiro caiu na conta e você contou. Somá-la de novo seria contar duas
+  // vezes — é o que a comparação por data resolve e a comparação por mês não
+  // resolveria, porque um mês fechado e um saldo conferido no dia 9 cortam em
+  // pontos diferentes do mesmo mês.
   const maturitiesByMonth = new Map<YearMonth, Cents>();
   for (const investment of input.investments) {
+    if (settledOn !== null && investment.maturityDate <= settledOn) continue;
     const month = monthOfISODate(investment.maturityDate);
     maturitiesByMonth.set(
       month,
@@ -232,7 +332,7 @@ function computeBaseRows(input: ProjectionInput): BaseRow[] {
   let debt = financing ? financing.principal : ZERO;
 
   for (let i = 0; i < input.horizonMonths; i++) {
-    const month = addMonths(input.startMonth, i);
+    const month = addMonths(startMonth, i);
 
     // Reajuste anual: aplicado no mês configurado, a partir do segundo mês da
     // projeção (o salário do primeiro mês é o que você recebe hoje).
@@ -296,7 +396,21 @@ function computeBaseRows(input: ProjectionInput): BaseRow[] {
 }
 
 export function projectPlan(input: ProjectionInput): ProjectionSummary {
-  const base = computeBaseRows(input);
+  // O caixa de hoje já contém o passado; a projeção recomeça onde ele para de
+  // conter. Replayar meses já liquidados somaria o mesmo dinheiro duas vezes.
+  const settledOn = settledThroughDate(input);
+  const resumesAt = resumeMonth(input);
+  const startMonth = isBefore(input.startMonth, resumesAt) ? resumesAt : input.startMonth;
+
+  // O primeiro mês projetado não deposita quando o saldo foi conferido DENTRO
+  // dele: parte do mês já está no saldo e não dá para saber quanto. É o que
+  // fechar o mês resolve — conferindo o saldo no fechamento, a projeção começa
+  // no mês seguinte e ele deposita inteiro.
+  const conferredOn = latestConferredOn(input.cashAccounts);
+  const firstMonthPartiallyLived =
+    conferredOn !== null && monthOfISODate(conferredOn) === startMonth;
+
+  const base = computeBaseRows(input, startMonth, settledOn);
 
   // Custo de vida usado no alvo da reserva: o do primeiro mês com parcela — o
   // mês em que a moradia dá o salto e o aperto começa de verdade.
@@ -312,17 +426,50 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
   const annualYield = netAnnualYield(input.yieldPolicy, input.rates);
   const monthlyYield = monthlyFromAnnual(annualYield);
 
+  // A reserva capitaliza à taxa de onde o dinheiro está de verdade (as contas
+  // cadastradas); o caixa de quitação, à política do plano, porque é dinheiro
+  // que ainda vai entrar e ainda não tem endereço. Sem contas cadastradas a
+  // primeira taxa é zero e a reserva não rende — é o que reproduz a planilha.
+  const cashAnnualYield = blendedCashAnnualNet(
+    input.cashAccounts,
+    input.rates,
+    input.yieldPolicy.incomeTaxRate
+  );
+  const cashMonthlyYield = monthlyFromAnnual(cashAnnualYield);
+
+  const targetFor = (month: YearMonth): Cents =>
+    roundToHundredReais(
+      cents(costOfLivingAfterMove * reserveMonthsFor(input.reserveTargets, month))
+    );
+
+  // Abertura: o caixa que já existe entra pela MESMA regra dos meses seguintes —
+  // enche a reserva até o alvo, e o que passa disso é caixa de quitação. Quando
+  // era um escalar jogado direto em `reserve`, todo dinheiro acima do alvo ficava
+  // preso lá e não contava nem para a quitação nem para o menor caixa do plano.
+  const openingCash = totalCashBalance(input.cashAccounts);
+  const openingTarget = base[0] ? targetFor(base[0].month) : ZERO;
+
   const months: MonthProjection[] = [];
-  let reserve = input.yieldPolicy.cashOnHand;
-  let payoffCash = ZERO;
+  let reserve = minCents(openingCash, openingTarget);
+  let payoffCash = subCents(openingCash, reserve);
 
   for (let i = 0; i < base.length; i++) {
     const row = base[i];
-    const reserveTarget = roundToHundredReais(
-      cents(costOfLivingAfterMove * reserveMonthsFor(input.reserveTargets, row.month))
-    );
+    const reserveTarget = targetFor(row.month);
 
-    const available = addCents(row.leftover, row.maturedInvestments);
+    // Rendimento antes da alocação: o alvo da reserva é conferido contra o saldo
+    // já corrigido, senão o mês deposita a mais e estoura o alvo.
+    const grownReserve = i === 0 ? reserve : mulRate(reserve, 1 + cashMonthlyYield);
+    const grownPayoffCash = i === 0 ? payoffCash : mulRate(payoffCash, 1 + monthlyYield);
+    const cashYield = addCents(
+      subCents(grownReserve, reserve),
+      subCents(grownPayoffCash, payoffCash)
+    );
+    reserve = grownReserve;
+    payoffCash = grownPayoffCash;
+
+    const available =
+      i === 0 && firstMonthPartiallyLived ? ZERO : addCents(row.leftover, row.maturedInvestments);
     // Reserva primeiro: só o que passa do alvo vai para o caixa de quitação.
     const toReserve =
       available <= 0 ? ZERO : minCents(available, maxCents(subCents(reserveTarget, reserve), ZERO));
@@ -331,11 +478,8 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
     reserve = addCents(reserve, toReserve);
     payoffCash =
       i === 0
-        ? toPayoffCash
-        : subCents(
-            addCents(mulRate(payoffCash, 1 + monthlyYield), toPayoffCash),
-            row.extraAmortization
-          );
+        ? addCents(payoffCash, toPayoffCash)
+        : subCents(addCents(payoffCash, toPayoffCash), row.extraAmortization);
 
     months.push({
       month: row.month,
@@ -350,6 +494,7 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
       toPayoffCash,
       reserve,
       payoffCash,
+      cashYield,
       debt: row.debt,
       installment: row.installment,
       extraAmortization: row.extraAmortization,
@@ -366,9 +511,7 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
   const minCash = minCashRow?.payoffCash ?? ZERO;
 
   // Reforço para fechar o buraco: o rombo dividido pelos meses até ele acontecer.
-  const monthsUntilHole = minCashRow
-    ? Math.max(1, monthsBetween(input.startMonth, minCashRow.month))
-    : 1;
+  const monthsUntilHole = minCashRow ? Math.max(1, monthsBetween(startMonth, minCashRow.month)) : 1;
   const monthlyTopUpToFixHole = minCash < 0 ? cents(-minCash / monthsUntilHole) : ZERO;
 
   const typicalLeftoverAfterMove = firstWithInstallment
@@ -408,7 +551,12 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
     typicalLeftoverAfterMove,
     costOfLivingAfterMove,
     monthlyTopUpToFixHole,
+    openingCash,
+    startMonth,
+    closedThrough: lastClosedMonth(input.closings),
+    settledOn,
     netAnnualYield: annualYield,
+    cashAnnualYield,
     amortizationAdvice,
   };
 }

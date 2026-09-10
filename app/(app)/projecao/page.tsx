@@ -25,6 +25,7 @@ export default async function ProjecaoPage() {
     income: month.income,
     leftover: month.leftover,
     maturedInvestments: month.maturedInvestments,
+    cashYield: month.cashYield,
     reserve: month.reserve,
     payoffCash: month.payoffCash,
     debt: month.debt,

@@ -18,17 +18,36 @@ export default async function MesPage({
   const parsed = mes ? parseMonth(mes) : null;
   const month = parsed?.ok ? parsed.value : monthOfISODate(ctx.container.clock.today());
 
-  const [result, categories] = await Promise.all([
+  const [result, categories, closings] = await Promise.all([
     ctx.container.useCases.closeMonth.execute({ planId: ctx.planId, month }),
     ctx.container.repos.categories.listByPlan(ctx.planId),
+    ctx.container.repos.closings.listByPlan(ctx.planId),
   ]);
   if (!result.ok) notFound();
 
   const closing = result.value;
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
 
+  const settled = closings.find((entry) => entry.month === month) ?? null;
+  const currentMonth = monthOfISODate(ctx.container.clock.today());
+
   const data: MesData = {
     month: closing.month,
+    settled: settled
+      ? {
+          leftover: settled.leftover,
+          planTarget: settled.planTarget,
+          cash: settled.cash,
+          closedAt: settled.closedAt.toISOString(),
+        }
+      : null,
+    canSettle: month <= currentMonth,
+    history: closings.map((entry) => ({
+      month: entry.month,
+      leftover: entry.leftover,
+      planTarget: entry.planTarget,
+      cash: entry.cash,
+    })),
     categories: closing.categories.map((entry) => ({
       id: entry.category.id,
       name: entry.category.name,

@@ -81,7 +81,6 @@ async function seed() {
     manualAnnualNet: seeded.yieldPolicy.manualAnnualNet,
     cdiPercent: seeded.yieldPolicy.cdiPercent,
     incomeTaxRate: seeded.yieldPolicy.incomeTaxRate,
-    cashOnHandCents: seeded.yieldPolicy.cashOnHand,
     accrueInvestments: seeded.accrueInvestments ? 1 : 0,
   });
 

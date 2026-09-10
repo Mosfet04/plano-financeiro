@@ -1,18 +1,26 @@
 import { asc, desc, eq } from "drizzle-orm";
 
 import type {
+  CashAccountRepository,
   FinancingRepository,
   InvestmentRepository,
   MarketRatesRepository,
   NewMarketRates,
 } from "@/core/application/ports";
+import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
 import type { ExtraAmortization, Financing } from "@/core/domain/financing/financing.entity";
 import type { Investment } from "@/core/domain/investment/investment.entity";
 import type { MarketRatesSnapshot } from "@/core/domain/market/market-rates.entity";
 
 import type { Database } from "../client";
-import { extraAmortizations, financings, investments, marketRates } from "../schema";
-import { toExtraAmortization, toFinancing, toInvestment, toMarketRates } from "./mappers";
+import { cashAccounts, extraAmortizations, financings, investments, marketRates } from "../schema";
+import {
+  toCashAccount,
+  toExtraAmortization,
+  toFinancing,
+  toInvestment,
+  toMarketRates,
+} from "./mappers";
 
 export class DrizzleFinancingRepository implements FinancingRepository {
   constructor(private readonly db: Database) {}
@@ -69,6 +77,45 @@ export class DrizzleFinancingRepository implements FinancingRepository {
 
   async deleteExtraAmortization(id: string): Promise<void> {
     await this.db.delete(extraAmortizations).where(eq(extraAmortizations.id, id));
+  }
+}
+
+export class DrizzleCashAccountRepository implements CashAccountRepository {
+  constructor(private readonly db: Database) {}
+
+  async listByPlan(planId: string): Promise<CashAccount[]> {
+    const rows = await this.db.query.cashAccounts.findMany({
+      where: eq(cashAccounts.planId, planId),
+      orderBy: desc(cashAccounts.balanceCents),
+    });
+    return rows.map(toCashAccount);
+  }
+
+  async findById(id: string): Promise<CashAccount | null> {
+    const row = await this.db.query.cashAccounts.findFirst({ where: eq(cashAccounts.id, id) });
+    return row ? toCashAccount(row) : null;
+  }
+
+  async save(account: CashAccount): Promise<void> {
+    const values = {
+      id: account.id,
+      planId: account.planId,
+      name: account.name,
+      balanceCents: account.balance,
+      indexer: account.indexer,
+      indexerValue: account.indexerValue,
+      taxExempt: account.taxExempt,
+      checkedOn: account.checkedOn,
+    };
+
+    await this.db
+      .insert(cashAccounts)
+      .values(values)
+      .onConflictDoUpdate({ target: cashAccounts.id, set: values });
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.delete(cashAccounts).where(eq(cashAccounts.id, id));
   }
 }
 

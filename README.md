@@ -47,8 +47,9 @@ Aliases: `@/core/*`, `@/infra/*`, `@/composition/*`, `@/*`.
 
 1. **Base** — renda (salário com reajuste anual, PLR com a tabela exclusiva de IR, abono de férias,
    13º rateado), despesas vigentes no mês, parcela do financiamento e saldo devedor.
-2. **Alocação** — o que sobra enche a reserva até o alvo; o excedente vai para o caixa de quitação,
-   que capitaliza ao mês. Quitação é o primeiro mês em que o caixa cobre o saldo devedor.
+2. **Alocação** — o caixa de abertura e o que sobra em cada mês enchem a reserva até o alvo; o
+   excedente vai para o caixa de quitação. Os dois capitalizam ao mês. Quitação é o primeiro mês em
+   que o caixa cobre o saldo devedor.
 
 A separação existe porque o alvo da reserva depende do custo de vida do primeiro mês _com parcela_,
 que só se conhece depois de percorrer os meses.
@@ -57,6 +58,86 @@ que só se conhece depois de percorrer os meses.
 `startsOn`/`endsOn`. O aluguel é um item que termina no mês da primeira parcela; o condomínio é um
 que começa nele; o auxílio home office é um item de _entrada_ no grupo moradia, que abate o custo do
 apê exatamente como a planilha fazia na mão. O motor não tem nenhum caso especial para a mudança.
+
+## Caixa, caixinhas e aplicações
+
+São duas tabelas porque são duas coisas diferentes, e confundi-las custou uma gambiarra:
+
+|                     | `cash_accounts`                                        | `investments`                      |
+| ------------------- | ------------------------------------------------------ | ---------------------------------- |
+| O que é             | conta corrente, caixinha do Nubank, cofrinho do PicPay | CDB, LCI, Tesouro com vencimento   |
+| Vencimento          | não tem — liquidez diária                              | `maturity_date`, obrigatório       |
+| Como entra na conta | **é** o caixa do primeiro mês, e rende ali             | _cai_ no caixa do mês em que vence |
+
+Ambas usam o mesmo par `indexer`/`indexer_value` (`103% CDI` → `CDI_PCT` com 1.03) resolvido contra
+o snapshot de taxas vigente. Em `cash_accounts` o indexador pode ser **nulo**: é dinheiro que não
+rende, o caso da conta corrente.
+
+Três decisões que valem registrar:
+
+- **O caixa de abertura passa pela regra de alocação**, igual a qualquer entrada: enche a reserva até
+  o alvo, e o que passa vira caixa de quitação. Antes era um escalar
+  (`yield_policies.cash_on_hand_cents`) jogado direto em `reserve`, e todo dinheiro acima do alvo
+  ficava **preso** lá — não contava para a quitação nem para o menor caixa do plano. Lançar caixa
+  extra como "aplicação já vencida" era a única coisa que funcionava, por acidente: vencimento passa
+  pela regra, escalar não passava.
+- **A reserva capitaliza pela média das contas, ponderada pelo saldo** — a taxa de onde o dinheiro
+  realmente está. Sem conta cadastrada a taxa é zero e a reserva não rende: o motor só afirma
+  rendimento onde você disse que o dinheiro está, e é isso que mantém o teste-ouro batendo com a
+  planilha, que nunca rendeu a reserva.
+- **O caixa de quitação segue a política do plano** (`yield_policies`, hoje ligada ao CDI), não a
+  média das contas: é dinheiro que ainda vai entrar e ainda não tem endereço.
+
+### Onde a projeção começa
+
+O caixa de hoje já contém o passado. Replayar os meses vividos a partir das premissas soma o mesmo
+dinheiro duas vezes — com o plano começando em ago/2026 e um saldo conferido em 09/09, eram uns
+R$ 6.100 inventados. Duas perguntas diferentes resolvem isso, e confundi-las é o bug fácil aqui:
+
+**1. Onde a projeção recomeça?** Depois do último mês fechado (`month_closings`). Sem nenhum
+fechamento, no mês do saldo conferido. Sem nenhum dos dois, em `start_month`.
+
+**2. Até que data o passado já está no saldo?** A data do saldo conferido — é literalmente o que ela
+significa. O fim do último mês fechado entra num `max` para o caso do fechamento ser mais novo que a
+conferência; aí o saldo está velho, e o plano subestima o caixa em vez de contar duas vezes.
+
+A segunda decide quais aplicações já venceram _para dentro_ do saldo, e a comparação é **por data,
+não por mês**: um mês fechado e um saldo conferido no dia 9 cortam em pontos diferentes do mesmo mês.
+
+O primeiro mês projetado **não deposita** quando o saldo foi conferido dentro dele: parte do mês já
+está no saldo e não dá para saber quanto. É exatamente isso que fechar o mês resolve.
+
+```
+sem fechar nada, saldo de R$ 3.143 conferido em 09/09
+  2026-09   venceu     R$ 0,00   toReserve      R$ 0,00   reserva  R$ 3.143,00  ← só o conferido
+  2026-10   venceu     R$ 0,00   toReserve  R$ 3.063,05   reserva  R$ 6.235,44
+
+setembro fechado, saldo de R$ 6.300 conferido em 30/09
+  2026-10   venceu     R$ 0,00   toReserve  R$ 3.063,05   reserva  R$ 9.363,05  ← deposita inteiro
+  2026-11   venceu R$ 1.477,32   toReserve  R$ 5.349,41   reserva R$ 14.800,00
+```
+
+Nos dois casos a LCI que venceu em 08/09 some da projeção — ela já está dentro da caixinha. O CDB
+que vence em 09/11 continua caindo em novembro.
+
+**A disciplina que isso pede é uma só: confira os saldos ao fechar o mês.** Fechar sem conferir
+deixa o plano partir de um caixa velho, e `/premissas` avisa quando isso acontece.
+
+Sem fechamento e sem conta cadastrada o plano roda desde `start_month` como sempre — é o que mantém
+o teste-ouro batendo com a planilha.
+
+### `month_closings` — o que cada mês foi
+
+Fechar um mês congela três números: a sobra realizada, a meta que o plano esperava **na época**, e o
+caixa total naquele momento. O motor de projeção lê só o `month` — é ele que corta história de
+projeção. Os valores existem para a série "o plano previu × eu fiz", em `/mes`.
+
+Congelado é o ponto: mexer no orçamento de mercado hoje não pode reescrever o que setembro de 2026
+foi. É por isso que o fechamento grava em vez de recalcular sob demanda.
+
+Refechar o mesmo mês sobrescreve, e reabrir apaga a linha — é o fluxo normal quando um lançamento
+atrasado aparece. `SettleMonthUseCase` recusa fechar mês que ainda não começou: congelaria um número
+que ainda vai mudar e tiraria da projeção uma sobra que ainda está inteira por vir.
 
 ## Rotina semanal de taxas
 
@@ -141,8 +222,8 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/mark
 
 ## Telas
 
-`/resumo` (capa e alertas) · `/mes` (lançamentos e orçamento) · `/metas` · `/projecao` (gráfico e
-tabela) · `/premissas` (tudo editável) · `/aparencia`.
+`/resumo` (capa e alertas) · `/mes` (lançamentos, orçamento, fechamento do mês e a série "previu ×
+fiz") · `/metas` · `/projecao` (gráfico e tabela) · `/premissas` (tudo editável) · `/aparencia`.
 
 No celular: barra inferior com quatro destinos e o botão central de novo lançamento, que abre uma
 folha de baixo. No desktop: rail vertical de ícones à esquerda. Design em Fluent 2, a linguagem
@@ -179,7 +260,16 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
   pessimista e mais realista.
 - **Correção das aplicações até o vencimento** usa o indexador constante contra o snapshot atual e
   uma alíquota única de IR, em vez da tabela regressiva. Melhor que o valor de face da planilha,
-  mas ainda é projeção.
+  mas ainda é projeção. Vale igual para as contas de caixa: uma caixinha com menos de 180 dias paga
+  22,5% de IR, não os 15% configurados.
+- **O saldo das contas de caixa é digitado, não lido.** Não há integração com banco: se `checked_on`
+  está velho, a projeção começa de um caixa velho — `/premissas` avisa quando o saldo é de um mês
+  que já passou.
+- **O mês do saldo conferido não deposita.** O plano descarta a sobra prevista dele inteira, mesmo
+  que você confira no dia 2. A tabela ainda mostra o `leftover` previsto, mas ele não entra no caixa.
+  Fechar o mês com o saldo conferido no fechamento é o que evita isso.
+- **Fechamento não valida o caixa.** Nada confere se o saldo digitado bate com a sobra declarada — se
+  os dois discordam, o plano acredita no saldo, que é o que existe de verdade no banco.
 - **Juros ao mês = taxa anual ÷ 12**, sem capitalizar — é a convenção do contrato da CAIXA, e é o
   que reproduz os R$ 1.659,67 de juros da primeira parcela.
 - **Divergência de centavos.** A planilha calcula em ponto flutuante sem arredondar; aqui tudo é
@@ -192,3 +282,7 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
 
 Import de CSV/extrato, rota de API para lançar gastos pelo agente, mais de um plano por pessoa,
 convite por link (hoje se convida editando `ALLOWED_EMAILS`), testes end-to-end.
+
+**Reconciliação de verdade.** O fechamento acredita no saldo que você digita e não confere nada
+contra ele. Comparar a variação do caixa entre dois fechamentos com a sobra declarada acharia o
+lançamento que faltou — hoje isso é olho no olho.

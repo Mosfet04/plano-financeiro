@@ -280,12 +280,67 @@ export async function deleteInvestment(input: z.input<typeof idSchema>) {
   return { ok: true as const };
 }
 
+const cashAccountSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(80),
+  balance: z.number().min(0).max(100_000_000),
+  /** Nulo = o dinheiro não rende (conta corrente). */
+  indexer: z.enum(["CDI_PCT", "PREFIXED", "IPCA_PLUS", "SELIC_PCT"]).nullable().default(null),
+  indexerValue: rate,
+  taxExempt: z.boolean().default(false),
+  checkedOn: z.iso.date(),
+});
+
+export async function saveCashAccount(input: z.input<typeof cashAccountSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = cashAccountSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  const d = parsed.data;
+  if (d.id) {
+    const existing = await ctx.container.repos.cashAccounts.findById(d.id);
+    if (!existing || existing.planId !== ctx.planId) return invalidInput;
+  }
+
+  await ctx.container.repos.cashAccounts.save({
+    id: d.id ?? ctx.container.ids.generate(),
+    planId: ctx.planId,
+    name: d.name,
+    balance: reais(d.balance),
+    indexer: d.indexer as Indexer | null,
+    // Sem indexador não existe taxa: guardar um número aqui seria dado morto
+    // que reaparece errado no dia em que alguém marcar um indexador.
+    indexerValue: d.indexer === null ? 0 : d.indexerValue,
+    taxExempt: d.taxExempt,
+    checkedOn: d.checkedOn,
+  });
+
+  revalidateProjection();
+  return { ok: true as const };
+}
+
+export async function deleteCashAccount(input: z.input<typeof idSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  const existing = await ctx.container.repos.cashAccounts.findById(parsed.data.id);
+  if (!existing || existing.planId !== ctx.planId) return invalidInput;
+
+  await ctx.container.repos.cashAccounts.delete(parsed.data.id);
+  revalidateProjection();
+  return { ok: true as const };
+}
+
 const yieldSchema = z.object({
   mode: z.enum(["MANUAL", "CDI_LINKED"]),
   manualAnnualNet: rate,
   cdiPercent: z.number().min(0).max(3),
   incomeTaxRate: z.number().min(0).max(1),
-  cashOnHand: z.number().min(0).max(100_000_000),
   accrueInvestments: z.boolean().default(true),
 });
 
@@ -304,7 +359,6 @@ export async function saveYieldPolicy(input: z.input<typeof yieldSchema>) {
       manualAnnualNet: d.manualAnnualNet,
       cdiPercent: d.cdiPercent,
       incomeTaxRate: d.incomeTaxRate,
-      cashOnHand: reais(d.cashOnHand),
     },
     d.accrueInvestments
   );

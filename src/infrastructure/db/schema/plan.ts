@@ -74,11 +74,35 @@ export const yieldPolicies = pgTable("yield_policies", {
   incomeTaxRate: numeric("income_tax_rate", { precision: 9, scale: 6, mode: "number" })
     .notNull()
     .default(0.15),
-  cashOnHandCents: integer("cash_on_hand_cents").notNull().default(0),
   /** Corrigir as aplicações até o vencimento em vez de usar o valor de face. */
   accrueInvestments: integer("accrue_investments").notNull().default(1),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * O resultado congelado de um mês que já acabou.
+ *
+ * O motor de projeção só lê o `month` — é ele que corta história de projeção.
+ * Os valores são a série "o plano previu × eu fiz", e ficam congelados de
+ * propósito: mudar o orçamento hoje não pode reescrever o que setembro foi.
+ */
+export const monthClosings = pgTable(
+  "month_closings",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    month: text("month").notNull(),
+    leftoverCents: integer("leftover_cents").notNull(),
+    planTargetCents: integer("plan_target_cents").notNull(),
+    /** Caixa total no fechamento. Só para a série histórica. */
+    cashCents: integer("cash_cents").notNull().default(0),
+    closedAt: timestamp("closed_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+    note: text("note"),
+  },
+  (t) => [uniqueIndex("uq_month_closing_per_month").on(t.planId, t.month)]
+);
 
 export const reserveTargets = pgTable(
   "reserve_targets",

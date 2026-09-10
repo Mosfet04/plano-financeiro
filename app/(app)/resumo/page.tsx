@@ -143,7 +143,28 @@ export default async function ResumoPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
-            <Row label="Rendimento líquido do caixa" value={percent(projection.netAnnualYield)} />
+            <Row
+              label="Caixa hoje"
+              value={formatBRL(projection.openingCash)}
+              hint={
+                snapshot.cashAccounts.length > 0
+                  ? `${snapshot.cashAccounts.length} conta${snapshot.cashAccounts.length > 1 ? "s" : ""} · rende ${percent(projection.cashAnnualYield)} a.a.`
+                  : "Nenhuma conta cadastrada em Premissas"
+              }
+            />
+            <Row
+              label="Rendimento do caixa de quitação"
+              value={percent(projection.netAnnualYield)}
+            />
+            <Row
+              label="Projeção a partir de"
+              value={formatMonth(projection.startMonth)}
+              hint={
+                projection.closedThrough
+                  ? `${formatMonth(projection.closedThrough)} está fechado`
+                  : "Nenhum mês fechado ainda"
+              }
+            />
             <Row
               label="Custo de vida depois da mudança"
               value={formatBRL(projection.costOfLivingAfterMove)}
@@ -178,10 +199,13 @@ export default async function ResumoPage() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
-      <span className="text-fg-muted">{label}</span>
+      <span className="text-fg-muted flex flex-col">
+        {label}
+        {hint ? <span className="text-fg-muted text-xs">{hint}</span> : null}
+      </span>
       <span className="tabular font-semibold">{value}</span>
     </div>
   );

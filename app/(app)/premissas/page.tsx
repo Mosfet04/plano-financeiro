@@ -69,12 +69,21 @@ export default async function PremissasPage() {
       taxExempt: investment.taxExempt,
       instruction: investment.instruction,
     })),
+    cashAccounts: snapshot.cashAccounts.map((account) => ({
+      id: account.id,
+      name: account.name,
+      balance: account.balance,
+      indexer: account.indexer,
+      indexerValue: account.indexerValue,
+      taxExempt: account.taxExempt,
+      checkedOn: account.checkedOn,
+    })),
+    today: ctx.container.clock.today(),
     yieldPolicy: {
       mode: snapshot.yieldPolicy.mode,
       manualAnnualNet: snapshot.yieldPolicy.manualAnnualNet,
       cdiPercent: snapshot.yieldPolicy.cdiPercent,
       incomeTaxRate: snapshot.yieldPolicy.incomeTaxRate,
-      cashOnHand: snapshot.yieldPolicy.cashOnHand,
       accrueInvestments: snapshot.accrueInvestments,
     },
     reserveTargets: snapshot.reserveTargets.map((target) => ({
