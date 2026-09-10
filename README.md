@@ -120,8 +120,13 @@ setembro fechado, saldo de R$ 6.300 conferido em 30/09
 Nos dois casos a LCI que venceu em 08/09 some da projeção — ela já está dentro da caixinha. O CDB
 que vence em 09/11 continua caindo em novembro.
 
-**A disciplina que isso pede é uma só: confira os saldos ao fechar o mês.** Fechar sem conferir
-deixa o plano partir de um caixa velho, e `/premissas` avisa quando isso acontece.
+**A disciplina que isso pede é uma só: confira os saldos ao fechar o mês.** No último dia do mês ou
+no primeiro do seguinte — o dia 1º é caso especial de propósito, porque nada daquele mês está no
+saldo ainda e ele deposita inteiro. Do dia 2 em diante o mês não deposita, e conferir em 01/10 sem
+essa exceção custaria a sobra inteira de outubro.
+
+Fechar sem conferir deixa o plano partir de um caixa velho, e `/premissas` avisa quando isso
+acontece.
 
 Sem fechamento e sem conta cadastrada o plano roda desde `start_month` como sempre — é o que mantém
 o teste-ouro batendo com a planilha.

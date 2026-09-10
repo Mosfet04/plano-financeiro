@@ -24,6 +24,7 @@ import {
 } from "../shared/money";
 import {
   addMonths,
+  dayOfISODate,
   endOfMonthDate,
   isBefore,
   isSameOrAfter,
@@ -403,12 +404,17 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
   const startMonth = isBefore(input.startMonth, resumesAt) ? resumesAt : input.startMonth;
 
   // O primeiro mês projetado não deposita quando o saldo foi conferido DENTRO
-  // dele: parte do mês já está no saldo e não dá para saber quanto. É o que
-  // fechar o mês resolve — conferindo o saldo no fechamento, a projeção começa
-  // no mês seguinte e ele deposita inteiro.
+  // dele: parte do mês já está no saldo e não dá para saber quanto.
+  //
+  // Dia 1º é a exceção, e é a que salva o fluxo humano: quem confere os saldos
+  // no primeiro dia do mês não tem nada daquele mês no saldo ainda, então ele
+  // deposita inteiro. Sem esta linha, conferir em 01/10 — o jeito natural de
+  // "fechar setembro" — custaria a sobra inteira de outubro.
   const conferredOn = latestConferredOn(input.cashAccounts);
   const firstMonthPartiallyLived =
-    conferredOn !== null && monthOfISODate(conferredOn) === startMonth;
+    conferredOn !== null &&
+    monthOfISODate(conferredOn) === startMonth &&
+    dayOfISODate(conferredOn) > 1;
 
   const base = computeBaseRows(input, startMonth, settledOn);
 

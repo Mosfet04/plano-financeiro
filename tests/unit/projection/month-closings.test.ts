@@ -121,6 +121,44 @@ describe("recomeço depois do último mês fechado", () => {
   });
 });
 
+describe("conferência no dia 1º", () => {
+  /**
+   * O fluxo humano: no dia 1º de outubro você fecha setembro e confere os
+   * saldos. Nada de outubro está no saldo ainda, então outubro deposita
+   * inteiro. Tratar o dia 1º como "mês parcialmente vivido" custaria a sobra
+   * inteira do mês — e é o jeito mais natural de fazer o fechamento.
+   */
+  it("saldo conferido no dia 1º deixa o mês depositar inteiro", () => {
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-01" }],
+      closings: [closing("2026-09")],
+    });
+
+    expect(result.startMonth).toBe("2026-10");
+    expect(result.months[0].toReserve).toBeGreaterThan(0);
+  });
+
+  it("do dia 2 em diante o mês não deposita", () => {
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-02" }],
+      closings: [closing("2026-09")],
+    });
+
+    expect(result.startMonth).toBe("2026-10");
+    expect(result.months[0].toReserve).toBe(0);
+  });
+
+  it("dia 1º sem nenhum fechamento também deposita inteiro", () => {
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-01" }],
+      closings: [],
+    });
+
+    expect(result.startMonth).toBe("2026-10");
+    expect(result.months[0].toReserve).toBeGreaterThan(0);
+  });
+});
+
 describe("aplicações contra o mês fechado", () => {
   it("aplicação vencida dentro do mês fechado não entra de novo", () => {
     // A LCI do BRB vence em 08/09/2026, dentro de setembro.

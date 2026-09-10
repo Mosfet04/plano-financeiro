@@ -99,3 +99,8 @@ export function daysInMonth(value: YearMonth): number {
 export function endOfMonthDate(value: YearMonth): string {
   return `${value}-${String(daysInMonth(value)).padStart(2, "0")}`;
 }
+
+/** Dia do mês de uma data civil "YYYY-MM-DD". */
+export function dayOfISODate(isoDate: string): number {
+  return Number(isoDate.slice(8, 10));
+}
