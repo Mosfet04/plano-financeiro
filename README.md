@@ -67,8 +67,25 @@ exatamente a mesma parcela — é propriedade dos dois sistemas — e é o que f
 amortização extra funcionarem sem caso especial. Guardar a parcela original fazia a amortização
 encolher mês a mês com a TR ligada, até virar negativa.
 
-`extra_amortization_effect` decide o que a amortização extra encurta, valendo para as duas fontes
-(o saque do FGTS e o que você amortizar do bolso):
+São **duas fontes** de amortização extra, e a diferença entre elas é de onde sai o dinheiro:
+
+|                        | `extra_amortizations`                | FGTS                          |
+| ---------------------- | ------------------------------------ | ----------------------------- |
+| De onde sai            | do seu caixa de quitação             | do saldo do FGTS              |
+| Valor                  | digitado, um mês por vez             | projetado a partir do salário |
+| Mexe no caixa do plano | **sim**                              | não                           |
+| Onde se configura      | `/premissas` → Amortizações do bolso | `/premissas` → FGTS           |
+
+Uma linha por mês, com índice único em `(financing_id, month)`: cadastrar o mesmo mês de novo
+sobrescreve o valor, e não existe edição — mover uma linha de mês colidiria na chave primária.
+
+**Amortizar do bolso nem sempre compensa, e a projeção mostra isso.** O abatimento sai do caixa e
+entra na dívida, então no instante da amortização a distância entre os dois não muda; o que muda é o
+futuro. Com CDI a 13,9% (uns 11,8% líquidos) contra 7,66% do contrato, o caixa rende mais do que a
+dívida custa, e amortizar **atrasa** a quitação. É a mesma conta de `amortization-advice`, que é
+quem avisa no resumo — e há teste garantindo que a projeção e o aviso não se contradigam.
+
+`extra_amortization_effect` decide o que a amortização extra encurta, valendo para as duas fontes:
 
 - `SHORTEN_TERM` (padrão) — mantém o pagamento e encurta o contrato. Economiza mais juros, e é o que
   serve a um plano cujo objetivo é quitar. Na SAC o que se mantém é a amortização, não a parcela: a
@@ -334,9 +351,6 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
 - **O FGTS é projetado, não lido.** O saldo cresce por 8% do bruto + 3% a.a.; distribuição de
   resultados, mudança de emprego e saque-aniversário não existem no modelo. Confira o saldo real no
   app da CAIXA e atualize junto com as caixinhas.
-- **Amortização extra digitada não tem tela.** A action `saveExtraAmortization` existe e o motor
-  respeita, mas `/premissas` só configura o FGTS. Lançar uma amortização avulsa hoje exige chamar a
-  action.
 - **O saldo devedor é calculado, não conferido.** A projeção alcança as parcelas pagas antes do
   primeiro mês projetado aplicando a mesma matemática do contrato, mês a mês, a partir de
   `principal`. Bate com o extrato enquanto tudo for pago em dia e pelo valor previsto; um atraso ou

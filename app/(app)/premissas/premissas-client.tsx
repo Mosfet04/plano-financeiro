@@ -8,10 +8,12 @@ import { toast } from "sonner";
 import {
   deleteBudgetCategory,
   deleteCashAccount,
+  deleteExtraAmortization,
   deleteInvestment,
   deleteRecurringItem,
   saveBudgetCategory,
   saveCashAccount,
+  saveExtraAmortization,
   saveFgtsSettings,
   saveFinancing,
   saveIncomeSettings,
@@ -74,6 +76,7 @@ export interface PremissasData {
     applyReferenceRate: boolean;
     extraAmortizationEffect: "SHORTEN_TERM" | "REDUCE_INSTALLMENT";
   } | null;
+  extraAmortizations: Array<{ id: string; month: string; amount: number }>;
   investments: Array<{
     id: string;
     name: string;
@@ -170,6 +173,11 @@ export function PremissasClient({ data }: { data: PremissasData }) {
       <RecurringSection items={data.recurringItems} />
       <CategoriesSection categories={data.categories} />
       <FinancingSection financing={data.financing} referenceRate={data.referenceRateMonthly} />
+      <ExtraAmortizationsSection
+        extras={data.extraAmortizations}
+        hasFinancing={data.financing !== null}
+        effect={data.financing?.extraAmortizationEffect ?? "SHORTEN_TERM"}
+      />
       <InvestmentsSection investments={data.investments} />
       <CashAccountsSection accounts={data.cashAccounts} today={data.today} />
       <FgtsSection fgts={data.fgts} />
@@ -1181,6 +1189,165 @@ function InvestmentSheet({
             onChange={(event) => setForm({ ...form, instruction: event.target.value || null })}
             placeholder="Não renove. Move para liquidez diária."
           />
+        </Field>
+      </form>
+    </Sheet>
+  );
+}
+
+/**
+ * Amortização avulsa, a que sai do seu bolso — distinta do FGTS, que tem seção
+ * própria porque o valor é projetado, não digitado.
+ *
+ * O que ela encurta (prazo ou parcela) é a mesma escolha do financiamento: são
+ * duas fontes alimentando a mesma regra, e ter dois interruptores para isso
+ * seria convite a configurá-los diferente sem querer.
+ */
+function ExtraAmortizationsSection({
+  extras,
+  hasFinancing,
+  effect,
+}: {
+  extras: PremissasData["extraAmortizations"];
+  hasFinancing: boolean;
+  effect: "SHORTEN_TERM" | "REDUCE_INSTALLMENT";
+}) {
+  const { pending, run } = useSaver();
+  const [adding, setAdding] = React.useState(false);
+
+  if (!hasFinancing) return null;
+
+  const sorted = [...extras].sort((a, b) => a.month.localeCompare(b.month));
+  const total = sorted.reduce((sum, extra) => sum + extra.amount, 0);
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between">
+        <div className="flex flex-col gap-1">
+          <CardTitle>Amortizações do bolso</CardTitle>
+          <p className="text-fg-muted text-xs">
+            {sorted.length > 0 ? `${money(total)} programados. ` : ""}
+            Sai do caixa de quitação e abate a dívida no mês marcado, encurtando{" "}
+            <strong>{effect === "SHORTEN_TERM" ? "o prazo" : "a parcela"}</strong>. O FGTS tem seção
+            própria, porque não sai do seu bolso.
+          </p>
+          <p className="text-fg-muted text-xs">
+            Só compensa quando a dívida custa mais do que o caixa rende — senão você troca um
+            rendimento maior por um juro menor e a quitação <em>atrasa</em>. Quem faz essa conta é o
+            aviso no <strong>Resumo</strong>.
+          </p>
+        </div>
+        <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+          <Plus className="size-4" />
+          Nova
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1 px-2">
+        {sorted.length === 0 ? (
+          <p className="text-fg-muted px-2 py-2 text-sm">
+            Nenhuma programada. Quando o resumo avisar que vale amortizar, é aqui que se registra.
+          </p>
+        ) : null}
+        {sorted.map((extra) => (
+          <div
+            key={extra.id}
+            className="rounded-control hover:bg-surface-hover flex items-center gap-3 px-2 py-2"
+          >
+            <span className="flex-1 truncate text-sm font-semibold">
+              {formatMonth(extra.month as YearMonth)}
+            </span>
+            <span className="tabular shrink-0 text-sm font-semibold">{money(extra.amount)}</span>
+            <button
+              type="button"
+              aria-label={`Remover amortização de ${formatMonth(extra.month as YearMonth)}`}
+              disabled={pending}
+              onClick={() =>
+                run(
+                  () => deleteExtraAmortization({ id: extra.id }),
+                  `Amortização de ${formatMonth(extra.month as YearMonth)} removida.`
+                )
+              }
+              className="rounded-control text-fg-muted hover:bg-danger-bg hover:text-danger grid size-9 shrink-0 place-items-center disabled:opacity-40"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </div>
+        ))}
+      </CardContent>
+
+      {adding ? (
+        <ExtraAmortizationSheet
+          pending={pending}
+          onClose={() => setAdding(false)}
+          onSave={(month, amount) =>
+            run(async () => {
+              const result = await saveExtraAmortization({ month, amount });
+              if (result.ok) setAdding(false);
+              return result;
+            }, "Amortização programada.")
+          }
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function ExtraAmortizationSheet({
+  pending,
+  onClose,
+  onSave,
+}: {
+  pending: boolean;
+  onClose: () => void;
+  onSave: (month: string, amount: number) => void;
+}) {
+  const [month, setMonth] = React.useState("");
+  const [amount, setAmount] = React.useState(0);
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title="Nova amortização"
+      footer={
+        <>
+          <Button type="button" variant="subtle" size="touch" className="flex-1" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            form="amortizacao-form"
+            variant="primary"
+            size="touch"
+            className="flex-1"
+            disabled={pending}
+          >
+            {pending ? "Salvando…" : "Salvar"}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="amortizacao-form"
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!/^\d{4}-\d{2}$/.test(month)) {
+            toast.error("Escolha o mês da amortização.");
+            return;
+          }
+          if (amount <= 0) {
+            toast.error("O valor precisa ser maior que zero.");
+            return;
+          }
+          onSave(month, amount);
+        }}
+      >
+        <Field label="Mês" hint="Cadastrar o mesmo mês de novo substitui o valor.">
+          <Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+        </Field>
+        <Field label="Valor" hint="Sai do caixa de quitação neste mês.">
+          <MoneyInput value={amount} onChange={setAmount} />
         </Field>
       </form>
     </Sheet>

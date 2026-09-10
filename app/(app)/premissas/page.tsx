@@ -61,6 +61,11 @@ export default async function PremissasPage() {
           extraAmortizationEffect: snapshot.financing.extraAmortizationEffect,
         }
       : null,
+    extraAmortizations: snapshot.extraAmortizations.map((extra) => ({
+      id: extra.id,
+      month: extra.month,
+      amount: extra.amount,
+    })),
     investments: snapshot.investments.map((investment) => ({
       id: investment.id,
       name: investment.name,

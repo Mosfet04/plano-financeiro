@@ -339,6 +339,26 @@ export async function deleteCashAccount(input: z.input<typeof idSchema>) {
   return { ok: true as const };
 }
 
+export async function deleteExtraAmortization(input: z.input<typeof idSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  const financing = await ctx.container.repos.financings.findByPlan(ctx.planId);
+  if (!financing) return invalidInput;
+
+  // Confere o dono pela lista do PRÓPRIO financiamento do plano: um id vindo do
+  // cliente que não esteja aqui não é seu, e não tem o que apagar.
+  const extras = await ctx.container.repos.financings.listExtraAmortizations(financing.id);
+  if (!extras.some((extra) => extra.id === parsed.data.id)) return invalidInput;
+
+  await ctx.container.repos.financings.deleteExtraAmortization(parsed.data.id);
+  revalidateProjection();
+  return { ok: true as const };
+}
+
 const yieldSchema = z.object({
   mode: z.enum(["MANUAL", "CDI_LINKED"]),
   manualAnnualNet: rate,
@@ -427,6 +447,11 @@ export async function saveFgtsSettings(input: z.input<typeof fgtsSchema>) {
   return { ok: true as const };
 }
 
+/**
+ * Sem id: o índice único é `(financing_id, month)`, então cadastrar o mesmo mês
+ * de novo sobrescreve o valor. É o modelo certo — "a amortização de mar/2027 é
+ * R$ X" — e evita o nó de mover uma linha de mês, que colidiria na chave.
+ */
 const extraAmortizationSchema = z.object({
   month: monthSchema,
   amount: z.number().min(0).max(10_000_000),
