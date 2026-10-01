@@ -1,13 +1,24 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Lock, Trash2, Undo2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  RotateCcw,
+  Trash2,
+  Undo2,
+} from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { reopenMonth, settleMonth } from "@/app/actions/closing.actions";
+import { reopenMonth } from "@/app/actions/closing.actions";
 import { deleteTransaction } from "@/app/actions/transaction.actions";
-import { Button } from "@/components/ui/button";
+import { TurnoverBanner } from "@/components/mes/turnover-banner";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Meter } from "@/components/ui/meter";
@@ -18,6 +29,15 @@ import { cn } from "@/lib/utils";
 
 export interface MesData {
   month: YearMonth;
+  /** Nulo antes do início do plano. */
+  previousMonth: YearMonth | null;
+  /** Nulo no mês corrente: o futuro ainda não tem lançamento. */
+  nextMonth: YearMonth | null;
+  /** Último dia do mês, "YYYY-MM-DD" — quando a virada abre. */
+  lastDay: string;
+  /** Virada pendente de OUTRO mês, para o aviso do topo. */
+  pendingTurnover: YearMonth | null;
+  today: string;
   /** Preenchido quando o mês já foi fechado — os números congelados. */
   settled: {
     leftover: number;
@@ -25,8 +45,8 @@ export interface MesData {
     cash: number;
     closedAt: string;
   } | null;
-  /** Falso para um mês que ainda não começou. */
-  canSettle: boolean;
+  /** O mês já acabou (ou hoje é o último dia dele): a virada está aberta. */
+  isOver: boolean;
   /** Fechar sem nenhuma conta de caixa apaga do plano o dinheiro já guardado. */
   hasCashAccounts: boolean;
   /** Série "o plano previu × eu fiz", do mais recente para trás. */
@@ -88,11 +108,16 @@ export function MesClient({ data }: { data: MesData }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {data.pendingTurnover ? (
+        <TurnoverBanner month={data.pendingTurnover} today={data.today} />
+      ) : null}
+
+      <MonthNav data={data} />
       <SettleBar data={data} />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
-          label="Sobrou este mês"
+          label="Sobrou no mês"
           value={money(data.leftover)}
           tone={data.leftover >= 0 ? "positive" : "negative"}
           hint={`Meta do plano: ${money(data.planTarget)}`}
@@ -107,11 +132,20 @@ export function MesClient({ data }: { data: MesData }) {
               : "Alguma categoria estourou — veja quais abaixo."
           }
         />
-        <Stat
-          label="Livre por dia"
-          value={money(data.freePerDay)}
-          hint={`Faltam ${data.daysRemaining} dia(s) no mês.`}
-        />
+        {data.nextMonth === null ? (
+          <Stat
+            label="Livre por dia"
+            value={money(data.freePerDay)}
+            hint={`Faltam ${data.daysRemaining} dia(s) no mês.`}
+          />
+        ) : (
+          // Mês que já passou não tem "por dia" — o que interessa é quanto saiu.
+          <Stat
+            label="Gasto em dinheiro"
+            value={money(data.variableSpent)}
+            hint="Gastos variáveis, fora o vale-refeição."
+          />
+        )}
         <Stat
           label="Ainda tem no vale-refeição"
           value={money(data.mealCardRemaining)}
@@ -273,25 +307,71 @@ function Line({ label, value, strong }: { label: string; value: number; strong?:
   );
 }
 
+const longMonth = (month: YearMonth) =>
+  new Date(`${month}-15T12:00:00Z`).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+
+const navButton =
+  "rounded-control text-fg-muted hover:bg-surface-hover hover:text-fg grid size-10 place-items-center";
+
+/** Voltar a um mês que passou é como se lança o que ficou para trás e se faz a virada dele. */
+function MonthNav({ data }: { data: MesData }) {
+  return (
+    <nav className="flex items-center justify-between gap-2" aria-label="Escolher mês">
+      {data.previousMonth ? (
+        <Link
+          href={`/mes?mes=${data.previousMonth}`}
+          aria-label={`Ver ${formatMonth(data.previousMonth)}`}
+          className={navButton}
+        >
+          <ChevronLeft className="size-5" />
+        </Link>
+      ) : (
+        <span className="size-10" />
+      )}
+      <span className="text-base font-semibold capitalize">{longMonth(data.month)}</span>
+      {data.nextMonth ? (
+        <Link
+          href={`/mes?mes=${data.nextMonth}`}
+          aria-label={`Ver ${formatMonth(data.nextMonth)}`}
+          className={navButton}
+        >
+          <ChevronRight className="size-5" />
+        </Link>
+      ) : (
+        <span className="size-10" />
+      )}
+    </nav>
+  );
+}
+
+const shortDate = (isoDate: string) =>
+  new Date(`${isoDate}T12:00:00Z`).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+
 /**
- * Fechar o mês é o que diz à projeção que ele é história. Enquanto está aberto,
- * o plano ainda projeta em cima dele — e o caixa que você já conferiu conta o
- * mesmo dinheiro duas vezes.
+ * Fechar o mês é o que diz à projeção que ele é história — e só acontece pela
+ * virada, que confere os saldos junto. Fechar sem eles fazia a sobra do mês
+ * sumir do plano; por isso aqui não existe mais botão de fechar direto.
  */
 function SettleBar({ data }: { data: MesData }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
 
-  async function run(action: () => Promise<{ ok: boolean; error?: string }>, done: string) {
+  async function reopen() {
     setPending(true);
-    const result = await action();
+    const result = await reopenMonth({ month: data.month });
     setPending(false);
 
     if (!result.ok) {
       toast.error(result.error ?? "Não deu certo.");
       return;
     }
-    toast.success(done);
+    toast.success("Mês reaberto.");
     router.refresh();
   }
 
@@ -305,27 +385,38 @@ function SettleBar({ data }: { data: MesData }) {
           <p className="text-fg-muted text-xs">
             Congelado em {money(data.settled.leftover)} de sobra contra{" "}
             {money(data.settled.planTarget)} de meta ({slack >= 0 ? "+" : ""}
-            {money(slack)}). A projeção começa depois deste mês.
+            {money(slack)}), com {money(data.settled.cash)} nas caixinhas. A projeção começa depois
+            deste mês. Apareceu um lançamento atrasado? Lance e refaça a virada.
           </p>
         </div>
-        <Button
-          variant="subtle"
-          size="sm"
-          disabled={pending}
-          onClick={() => run(() => reopenMonth({ month: data.month }), "Mês reaberto.")}
-        >
-          <Undo2 className="size-4" />
-          Reabrir
-        </Button>
+        <div className="flex shrink-0 gap-1">
+          <Link
+            href={`/mes/virada?mes=${data.month}`}
+            className={buttonVariants({ variant: "subtle", size: "sm" })}
+          >
+            <RotateCcw className="size-4" />
+            Refazer
+          </Link>
+          <Button variant="subtle" size="sm" disabled={pending} onClick={reopen}>
+            <Undo2 className="size-4" />
+            Reabrir
+          </Button>
+        </div>
       </div>
     );
   }
 
-  if (!data.canSettle) return null;
+  if (!data.isOver) {
+    return (
+      <p className="text-fg-muted text-center text-xs">
+        {formatMonth(data.month)} está em andamento. A virada abre em {shortDate(data.lastDay)}, o
+        último dia do mês.
+      </p>
+    );
+  }
 
-  // Fechar o mês manda a projeção começar no seguinte, partindo do saldo das
-  // contas. Sem nenhuma conta cadastrada esse saldo é zero, e todo o dinheiro
-  // acumulado nos meses fechados simplesmente some do plano.
+  // A virada parte do saldo das contas. Sem nenhuma cadastrada esse saldo é
+  // zero, e todo o dinheiro acumulado simplesmente some do plano.
   if (!data.hasCashAccounts) {
     return (
       <div className="rounded-card bg-warning-bg flex flex-wrap items-center gap-3 border border-[var(--warning)] p-4">
@@ -345,22 +436,23 @@ function SettleBar({ data }: { data: MesData }) {
 
   return (
     <div className="rounded-card bg-surface-subtle flex flex-wrap items-center gap-3 border border-[var(--stroke)] p-4">
-      <CheckCircle2 className="text-brand size-5 shrink-0" />
+      <CalendarCheck className="text-brand size-5 shrink-0" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-sm font-semibold">{formatMonth(data.month)} ainda está aberto</p>
+        <p className="text-sm font-semibold">
+          {formatMonth(data.month)} {data.today === data.lastDay ? "termina hoje" : "terminou"} e
+          ainda está aberto
+        </p>
         <p className="text-fg-muted text-xs">
-          Fechar congela {money(data.leftover)} de sobra e tira o mês da projeção. Confira os saldos
-          das caixinhas antes — o plano parte deles.
+          Na virada você confere os saldos das caixinhas e fecha o mês de uma vez. Sobra do mês:{" "}
+          {money(data.leftover)}.
         </p>
       </div>
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={pending}
-        onClick={() => run(() => settleMonth({ month: data.month }), "Mês fechado.")}
+      <Link
+        href={`/mes/virada?mes=${data.month}`}
+        className={buttonVariants({ variant: "primary", size: "sm" })}
       >
-        Fechar o mês
-      </Button>
+        Fazer a virada
+      </Link>
     </div>
   );
 }

@@ -86,6 +86,7 @@ export default async function PremissasPage() {
       checkedOn: account.checkedOn,
     })),
     today: ctx.container.clock.today(),
+    closedMonths: snapshot.closings.map((closing) => closing.month),
     fgts: {
       enabled: snapshot.fgts?.enabled ?? false,
       balance: snapshot.fgts?.balance ?? 0,

@@ -1,6 +1,6 @@
 import { PaymentMethod, type BudgetCategory } from "@/core/domain/budget/budget-category.entity";
 import { ItemDirection, type RecurringItem } from "@/core/domain/expense/recurring-item.entity";
-import { projectPlan } from "@/core/domain/projection/project-plan";
+import { expectedLeftover, projectPlan } from "@/core/domain/projection/project-plan";
 import {
   addCents,
   cents,
@@ -140,13 +140,14 @@ export class CloseMonthUseCase {
         mealCardOverflow
     );
 
-    // Meta do mês: o que a projeção espera de sobra, mais o reforço necessário
-    // caso alguma meta tenha furado o caixa do plano.
-    const projection = projectPlan(buildProjectionInput(snapshot, today, DEFAULT_HORIZON_MONTHS));
-    const projected =
-      projection.months.find((m) => m.month === input.month)?.leftover ??
-      projection.leftoverFirstMonth;
-    const planTarget = addCents(projected, projection.monthlyTopUpToFixHole);
+    // Meta do mês: o que o plano espera de sobra dele, mais o reforço necessário
+    // caso alguma meta tenha furado o caixa do plano. A sobra esperada vem de
+    // `expectedLeftover`, não da linha da projeção corrente: depois da virada o
+    // mês já saiu da projeção, e a meta virava a sobra do mês seguinte.
+    const projectionInput = buildProjectionInput(snapshot, today, DEFAULT_HORIZON_MONTHS);
+    const projection = projectPlan(projectionInput);
+    const expected = expectedLeftover(projectionInput, input.month) ?? ZERO;
+    const planTarget = addCents(expected, projection.monthlyTopUpToFixHole);
     const slack = subCents(leftover, planTarget);
 
     const daysRemaining =

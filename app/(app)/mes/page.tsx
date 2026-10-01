@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 
 import { resolvePlanContext } from "@/app/actions/plan-context";
-import { monthOfISODate, parseMonth } from "@/core/domain/shared/month";
+import { isMonthOver, pendingTurnover } from "@/core/domain/closing/month-closing.entity";
+import { addMonths, endOfMonthDate, monthOfISODate, parseMonth } from "@/core/domain/shared/month";
 import { MesClient, type MesData } from "./mes-client";
 
 export const dynamic = "force-dynamic";
@@ -14,9 +15,16 @@ export default async function MesPage({
   const ctx = await resolvePlanContext();
   if (!ctx) notFound();
 
+  const today = ctx.container.clock.today();
+  const currentMonth = monthOfISODate(today);
+
   const { mes } = await searchParams;
   const parsed = mes ? parseMonth(mes) : null;
-  const month = parsed?.ok ? parsed.value : monthOfISODate(ctx.container.clock.today());
+  // Fora do intervalo do plano não há mês para mostrar: volta para o corrente.
+  const month =
+    parsed?.ok && parsed.value >= ctx.planStartMonth && parsed.value <= currentMonth
+      ? parsed.value
+      : currentMonth;
 
   const [result, categories, closings] = await Promise.all([
     ctx.container.useCases.closeMonth.execute({ planId: ctx.planId, month }),
@@ -29,10 +37,18 @@ export default async function MesPage({
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
 
   const settled = closings.find((entry) => entry.month === month) ?? null;
-  const currentMonth = monthOfISODate(ctx.container.clock.today());
+  const previous = addMonths(month, -1);
+  const turnover = pendingTurnover(today, closings, ctx.planStartMonth);
 
   const data: MesData = {
     month: closing.month,
+    previousMonth: previous >= ctx.planStartMonth ? previous : null,
+    nextMonth: month < currentMonth ? addMonths(month, 1) : null,
+    lastDay: endOfMonthDate(month),
+    // O aviso de cima só aparece quando a virada pendente é de outro mês; no
+    // próprio mês, a barra de fechamento já faz o convite.
+    pendingTurnover: turnover !== month ? turnover : null,
+    today,
     settled: settled
       ? {
           leftover: settled.leftover,
@@ -41,7 +57,7 @@ export default async function MesPage({
           closedAt: settled.closedAt.toISOString(),
         }
       : null,
-    canSettle: month <= currentMonth,
+    isOver: isMonthOver(month, today),
     hasCashAccounts: (await ctx.container.repos.cashAccounts.listByPlan(ctx.planId)).length > 0,
     history: closings.map((entry) => ({
       month: entry.month,

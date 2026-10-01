@@ -1,9 +1,12 @@
 import { buildContainer, type AppContainer } from "@/composition/container";
+import type { YearMonth } from "@/core/domain/shared/month";
 import { auth } from "@/infra/auth/auth";
 
 export interface PlanContext {
   readonly userId: string;
   readonly planId: string;
+  /** Primeiro mês do plano — antes dele não há o que mostrar nem fechar. */
+  readonly planStartMonth: YearMonth;
   readonly container: AppContainer;
 }
 
@@ -22,7 +25,7 @@ export async function resolvePlanContext(): Promise<PlanContext | null> {
   const plan = await container.repos.plans.findByUserId(userId);
   if (!plan) return null;
 
-  return { userId, planId: plan.id, container };
+  return { userId, planId: plan.id, planStartMonth: plan.startMonth, container };
 }
 
 export type ActionResult<T = undefined> =

@@ -38,7 +38,8 @@ Aliases: `@/core/*`, `@/infra/*`, `@/composition/*`, `@/*`.
 - **Nomes, tipos e arquivos em inglês**; rotas, UI e comentários de regra de negócio em português.
 - **`getEnv()` é a única leitura de `process.env`.** Nenhum módulo lê variável de ambiente direto.
 - **CRUD simples fala direto com `container.repos`**; só o que tem regra vira caso de uso. Hoje são
-  três: `getProjection`, `closeMonth`, `refreshMarketRates`.
+  cinco: `getProjection`, `createPlan`, `closeMonth`, `settleMonth` (a virada do mês) e
+  `refreshMarketRates`.
 - **Toda action confere o dono** antes de gravar ou apagar: id vindo do cliente não é confiável.
 
 ## Como o motor funciona
@@ -167,8 +168,10 @@ O caixa de hoje já contém o passado. Replayar os meses vividos a partir das pr
 dinheiro duas vezes — com o plano começando em ago/2026 e um saldo conferido em 09/09, eram uns
 R$ 6.100 inventados. Duas perguntas diferentes resolvem isso, e confundi-las é o bug fácil aqui:
 
-**1. Onde a projeção recomeça?** Depois do último mês fechado (`month_closings`). Sem nenhum
-fechamento, no mês do saldo conferido. Sem nenhum dos dois, em `start_month`.
+**1. Onde a projeção recomeça?** No mais novo entre o mês seguinte ao último fechado
+(`month_closings`) e o mês do saldo conferido. Setembro fechado e saldo conferido em 15/11: outubro
+já está no saldo, e recomeçar em outubro o contaria duas vezes. Sem nenhum dos dois, em
+`start_month`.
 
 **2. Até que data o passado já está no saldo?** A data do saldo conferido — é literalmente o que ela
 significa. O fim do último mês fechado entra num `max` para o caso do fechamento ser mais novo que a
@@ -178,7 +181,12 @@ A segunda decide quais aplicações já venceram _para dentro_ do saldo, e a com
 não por mês**: um mês fechado e um saldo conferido no dia 9 cortam em pontos diferentes do mesmo mês.
 
 O primeiro mês projetado **não deposita** quando o saldo foi conferido dentro dele: parte do mês já
-está no saldo e não dá para saber quanto. É exatamente isso que fechar o mês resolve.
+está no saldo e não dá para saber quanto. Duas exceções, e são elas que fazem a virada funcionar:
+
+- **Dia 1º.** Nada daquele mês está no saldo ainda, então ele deposita inteiro.
+- **Mês anterior fechado.** Fechar é dizer "a sobra dele foi para as caixinhas, a do mês seguinte
+  ainda não". Quem faz a virada de setembro no dia 5 de outubro não tem nada de outubro no saldo: a
+  sobra de outubro só vai para as caixinhas na virada de outubro.
 
 ```
 sem fechar nada, saldo de R$ 3.143 conferido em 09/09
@@ -193,13 +201,10 @@ setembro fechado, saldo de R$ 6.300 conferido em 30/09
 Nos dois casos a LCI que venceu em 08/09 some da projeção — ela já está dentro da caixinha. O CDB
 que vence em 09/11 continua caindo em novembro.
 
-**A disciplina que isso pede é uma só: confira os saldos ao fechar o mês.** No último dia do mês ou
-no primeiro do seguinte — o dia 1º é caso especial de propósito, porque nada daquele mês está no
-saldo ainda e ele deposita inteiro. Do dia 2 em diante o mês não deposita, e conferir em 01/10 sem
-essa exceção custaria a sobra inteira de outubro.
-
-Fechar sem conferir deixa o plano partir de um caixa velho, e `/premissas` avisa quando isso
-acontece.
+**A disciplina que isso pede é uma só: a virada do mês** (`/mes/virada`), que confere os saldos e
+fecha o mês de uma vez. Abre no último dia do mês e fica pendente até ser feita; `/resumo` e `/mes`
+mostram o aviso enquanto isso. Conferir um saldo avulso em `/premissas` fora do dia 1º ou do último
+dia mostra o que a projeção vai supor — o caminho certo continua sendo a virada.
 
 Sem fechamento e sem conta cadastrada o plano roda desde `start_month` como sempre — é o que mantém
 o teste-ouro batendo com a planilha.
@@ -213,9 +218,35 @@ projeção. Os valores existem para a série "o plano previu × eu fiz", em `/me
 Congelado é o ponto: mexer no orçamento de mercado hoje não pode reescrever o que setembro de 2026
 foi. É por isso que o fechamento grava em vez de recalcular sob demanda.
 
+A meta congelada vem de `expectedLeftover`, não da linha da projeção corrente. Depois que os saldos
+são conferidos em 01/10 a projeção começa em outubro e setembro sai dela; ler a linha fazia a meta
+de setembro virar a sobra de outubro.
+
 Refechar o mesmo mês sobrescreve, e reabrir apaga a linha — é o fluxo normal quando um lançamento
-atrasado aparece. `SettleMonthUseCase` recusa fechar mês que ainda não começou: congelaria um número
-que ainda vai mudar e tiraria da projeção uma sobra que ainda está inteira por vir.
+atrasado aparece. `SettleMonthUseCase` recusa fechar o mês corrente antes do último dia: congelaria
+um número que ainda vai mudar e tiraria da projeção uma sobra que ainda está por vir. No dia 1º o
+`/mes` abre no mês novo, e era esse o mês que o botão antigo fechava.
+
+### A virada do mês
+
+O fechamento só acontece pela virada, que grava num `batch` só (tudo ou nada):
+
+1. o fechamento do mês;
+2. o saldo de **todas** as contas, com a data de hoje — a data vale para o caixa inteiro, e uma
+   conta esquecida ficaria um mês atrás;
+3. a remoção das aplicações vencidas cujo dinheiro já está nas caixinhas;
+4. o saldo do FGTS, quando ele está ligado — sem isso cada mês fechado perde um depósito, porque a
+   projeção parte do saldo guardado.
+
+Separados, cada pedaço deixava o plano errado: fechar sem atualizar os saldos fazia a sobra do mês
+sumir da projeção, e atualizar sem fechar do dia 2 em diante fazia o mês corrente não depositar.
+
+A tela tem três passos — revisar o mês, conferir as caixinhas, confirmar — e só grava no último.
+No segundo ela mostra o saldo esperado de cada conta (anterior + rendimento estimado desde a última
+conferência) e confere se a sobra chegou: o que entrou nas caixinhas, menos o rendimento e as
+aplicações resgatadas, deveria ser a sobra do mês. Quando não é, ou faltou lançamento, ou o
+dinheiro ficou na conta corrente, que o plano não enxerga. No terceiro, mostra quitação e menor
+caixa antes e depois.
 
 ## Rotina semanal de taxas
 
@@ -300,7 +331,8 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/mark
 
 ## Telas
 
-`/resumo` (capa e alertas) · `/mes` (lançamentos, orçamento, fechamento do mês e a série "previu ×
+`/resumo` (capa e alertas) · `/mes/virada` (a virada do mês) · `/mes` (lançamentos, orçamento,
+navegação entre meses, fechamento do mês e a série "previu ×
 fiz") · `/metas` · `/projecao` (gráfico e tabela) · `/premissas` (tudo editável) · `/aparencia`.
 
 No celular: barra inferior com quatro destinos e o botão central de novo lançamento, que abre uma
@@ -340,14 +372,20 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
   uma alíquota única de IR, em vez da tabela regressiva. Melhor que o valor de face da planilha,
   mas ainda é projeção. Vale igual para as contas de caixa: uma caixinha com menos de 180 dias paga
   22,5% de IR, não os 15% configurados.
-- **O saldo das contas de caixa é digitado, não lido.** Não há integração com banco: se `checked_on`
-  está velho, a projeção começa de um caixa velho — `/premissas` avisa quando o saldo é de um mês
-  que já passou.
-- **O mês do saldo conferido não deposita.** O plano descarta a sobra prevista dele inteira, mesmo
-  que você confira no dia 2. A tabela ainda mostra o `leftover` previsto, mas ele não entra no caixa.
-  Fechar o mês com o saldo conferido no fechamento é o que evita isso.
-- **Fechamento não valida o caixa.** Nada confere se o saldo digitado bate com a sobra declarada — se
-  os dois discordam, o plano acredita no saldo, que é o que existe de verdade no banco.
+- **O saldo das contas de caixa é digitado, não lido.** Não há integração com banco, e a sobra não
+  vai sozinha para as caixinhas: você transfere e confere na virada. Se `checked_on` está velho, a
+  projeção começa de um caixa velho — `/resumo`, `/mes` e `/premissas` avisam.
+- **Saldo avulso no meio do mês erra de um jeito ou de outro.** Sem o mês anterior fechado, o plano
+  descarta a sobra prevista do mês inteira. Com ele fechado, supõe que o saldo não tem nada do mês —
+  e uma retirada para meta feita antes da conferência conta duas vezes. A tela de edição avisa; a
+  virada evita os dois.
+- **O primeiro mês projetado não rende.** O caixa de abertura só capitaliza a partir do segundo mês,
+  então a projeção fica sempre um mês de rendimento abaixo (uns R$ 460 com R$ 64 mil em caixa). É o
+  erro conservador, e mexer nele muda os números do teste das contas de caixa.
+- **A conferência da virada é aproximada.** O rendimento é estimado (dias corridos sobre 365, à
+  taxa de hoje) e o saldo anterior pode ter sido conferido no meio do mês. A tela mostra a
+  diferença entre o guardado e a sobra, mas não impede fechar — se os dois discordam, o plano
+  acredita no saldo, que é o que existe de verdade no banco.
 - **O FGTS é projetado, não lido.** O saldo cresce por 8% do bruto + 3% a.a.; distribuição de
   resultados, mudança de emprego e saque-aniversário não existem no modelo. Confira o saldo real no
   app da CAIXA e atualize junto com as caixinhas.
@@ -368,6 +406,5 @@ Se o evento falhar — ou se a conta veio do seed, que cria a linha em `users` a
 Import de CSV/extrato, rota de API para lançar gastos pelo agente, mais de um plano por pessoa,
 convite por link (hoje se convida editando `ALLOWED_EMAILS`), testes end-to-end.
 
-**Reconciliação de verdade.** O fechamento acredita no saldo que você digita e não confere nada
-contra ele. Comparar a variação do caixa entre dois fechamentos com a sobra declarada acharia o
-lançamento que faltou — hoje isso é olho no olho.
+**Reconciliação por lançamento.** A virada compara o total guardado com a sobra, mas não diz qual
+lançamento faltou — isso continua sendo olho no olho.

@@ -15,6 +15,7 @@ import type {
   YieldPolicy,
 } from "@/core/domain/plan/plan.entity";
 import type { Transaction } from "@/core/domain/transaction/transaction.entity";
+import type { Cents } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
 
 export interface Clock {
@@ -94,10 +95,26 @@ export interface CashAccountRepository {
   delete(id: string): Promise<void>;
 }
 
+/**
+ * Tudo que a virada do mês grava. Vai junto porque cada pedaço sozinho deixa o
+ * plano errado: o fechamento sem os saldos faz a sobra do mês sumir da
+ * projeção, e os saldos sem o fechamento fazem o mês seguinte não depositar.
+ */
+export interface MonthTurnover {
+  readonly closing: MonthClosing;
+  /** As contas com o saldo e a data conferidos na virada. */
+  readonly accounts: readonly CashAccount[];
+  /** Aplicações vencidas cujo dinheiro já está dentro dos saldos. */
+  readonly redeemedInvestmentIds: readonly string[];
+  /** Saldo do FGTS conferido no app da CAIXA. Nulo = não mexe. */
+  readonly fgtsBalance: Cents | null;
+}
+
 export interface MonthClosingRepository {
   listByPlan(planId: string): Promise<MonthClosing[]>;
   findByMonth(planId: string, month: YearMonth): Promise<MonthClosing | null>;
-  save(closing: MonthClosing): Promise<void>;
+  /** Grava a virada inteira de uma vez — ou tudo, ou nada. */
+  settle(turnover: MonthTurnover): Promise<void>;
   delete(id: string): Promise<void>;
 }
 

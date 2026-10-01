@@ -2,10 +2,12 @@ import { AlertTriangle, CalendarClock, PiggyBank } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { resolvePlanContext } from "@/app/actions/plan-context";
+import { TurnoverBanner } from "@/components/mes/turnover-banner";
 import { AmortizationAlert } from "@/components/resumo/amortization-alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Stat } from "@/components/ui/stat";
+import { pendingTurnover } from "@/core/domain/closing/month-closing.entity";
 import { GoalStatus } from "@/core/domain/goal/goal.entity";
 import { formatBRL } from "@/core/domain/shared/money";
 import { formatMonth, monthOfISODate } from "@/core/domain/shared/month";
@@ -40,9 +42,12 @@ export default async function ResumoPage() {
     .sort((a, b) => (a.targetMonth! < b.targetMonth! ? -1 : 1))[0];
 
   const hasHole = projection.minCash < 0;
+  const turnover = pendingTurnover(today, snapshot.closings, snapshot.plan.startMonth);
 
   return (
     <div className="flex flex-col gap-4">
+      {turnover ? <TurnoverBanner month={turnover} today={today} /> : null}
+
       {hasHole ? (
         <div className="rounded-card bg-danger-bg flex gap-3 border border-[var(--danger)] p-4">
           <AlertTriangle className="text-danger mt-0.5 size-5 shrink-0" />

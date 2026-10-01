@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
@@ -28,7 +29,14 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { IntegerInput, MoneyInput, PercentInput } from "@/components/ui/number-inputs";
 import { Sheet } from "@/components/ui/sheet";
 import { formatBRL, toReais, type Cents } from "@/core/domain/shared/money";
-import { addMonths, formatMonth, monthOfISODate, type YearMonth } from "@/core/domain/shared/month";
+import {
+  addMonths,
+  dayOfISODate,
+  endOfMonthDate,
+  formatMonth,
+  monthOfISODate,
+  type YearMonth,
+} from "@/core/domain/shared/month";
 
 export interface PremissasData {
   income: {
@@ -98,6 +106,8 @@ export interface PremissasData {
   }>;
   /** Data civil de hoje, para pré-preencher "saldo conferido em". */
   today: string;
+  /** Meses fechados — mudam o que um saldo conferido no meio do mês significa. */
+  closedMonths: string[];
   fgts: {
     enabled: boolean;
     balance: number;
@@ -179,7 +189,11 @@ export function PremissasClient({ data }: { data: PremissasData }) {
         effect={data.financing?.extraAmortizationEffect ?? "SHORTEN_TERM"}
       />
       <InvestmentsSection investments={data.investments} />
-      <CashAccountsSection accounts={data.cashAccounts} today={data.today} />
+      <CashAccountsSection
+        accounts={data.cashAccounts}
+        today={data.today}
+        closedMonths={data.closedMonths}
+      />
       <FgtsSection fgts={data.fgts} />
       <YieldSection policy={data.yieldPolicy} reserveTargets={data.reserveTargets} />
     </div>
@@ -1384,9 +1398,11 @@ const cashRateLabel = (account: CashAccountRow) => {
 function CashAccountsSection({
   accounts,
   today,
+  closedMonths,
 }: {
   accounts: PremissasData["cashAccounts"];
   today: string;
+  closedMonths: string[];
 }) {
   const { pending, run } = useSaver();
   const [editing, setEditing] = React.useState<CashAccountRow | null>(null);
@@ -1399,8 +1415,10 @@ function CashAccountsSection({
       latest === null || account.checkedOn > latest ? account.checkedOn : latest,
     null
   );
-  const conferredMonth = conferredOn === null ? null : monthOfISODate(conferredOn);
-  const isStale = conferredMonth !== null && conferredMonth < monthOfISODate(today);
+  // Velho é o que vem de antes da última virada: um saldo do último dia do mês
+  // passado (virada feita no dia 30) ainda é o de hoje.
+  const isStale =
+    conferredOn !== null && conferredOn < endOfMonthDate(addMonths(monthOfISODate(today), -1));
 
   return (
     <Card>
@@ -1411,17 +1429,18 @@ function CashAccountsSection({
             {money(total)} líquidos. Não vence — já é o caixa do primeiro mês, e rende ali mesmo.
             Enche a reserva até o alvo e o que passa vira caixa de quitação.
           </p>
-          {conferredMonth ? (
+          {conferredOn ? (
             <p className="text-fg-muted text-xs">
-              Conferido em <strong>{formatMonth(conferredMonth)}</strong> — a projeção começa nesse
-              mês e volta a acumular em <strong>{formatMonth(addMonths(conferredMonth, 1))}</strong>
-              . O saldo já conta como o resultado do mês conferido.
+              Conferido em <strong>{civilDate(conferredOn)}</strong>. Para atualizar, use a{" "}
+              <Link href="/mes/virada" className="text-brand font-semibold hover:underline">
+                virada do mês
+              </Link>
+              : ela confere todas as contas e fecha o mês de uma vez.
             </p>
           ) : null}
           {isStale ? (
             <p className="text-warning text-xs font-semibold">
-              O saldo é de um mês que já passou. Confira e atualize para o plano partir da
-              realidade.
+              O saldo é de um mês que já passou. Faça a virada para o plano partir da realidade.
             </p>
           ) : null}
         </div>
@@ -1488,6 +1507,7 @@ function CashAccountsSection({
       {editing ? (
         <CashAccountSheet
           account={editing}
+          closedMonths={closedMonths}
           pending={pending}
           onClose={() => setEditing(null)}
           onSave={(form) =>
@@ -1511,13 +1531,49 @@ function CashAccountsSection({
   );
 }
 
+const civilDate = (isoDate: string) => new Date(`${isoDate}T12:00:00Z`).toLocaleDateString("pt-BR");
+
+/**
+ * Conferir um saldo fora da virada (dia 1º ou último dia do mês) muda o que o
+ * plano supõe sobre o mês corrente, e cada caminho erra de um jeito. Melhor
+ * dizer na hora do que deixar a projeção mudar calada.
+ */
+function OffTurnoverWarning({
+  checkedOn,
+  closedMonths,
+}: {
+  checkedOn: string;
+  closedMonths: string[];
+}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkedOn)) return null;
+
+  const month = monthOfISODate(checkedOn);
+  if (dayOfISODate(checkedOn) === 1 || checkedOn === endOfMonthDate(month)) return null;
+
+  const previous = addMonths(month, -1);
+  const consequence = closedMonths.includes(previous)
+    ? `Como ${formatMonth(previous)} está fechado, o plano supõe que este saldo ainda não tem nada de ${formatMonth(month)}. Se você tirou dinheiro daqui para uma meta deste mês, ela vai contar duas vezes.`
+    : `Conferir no dia ${dayOfISODate(checkedOn)} faz o plano descartar a sobra prevista de ${formatMonth(month)} inteira, porque não dá para saber quanto dela já está no saldo.`;
+
+  return (
+    <p className="rounded-control bg-warning-bg flex gap-2 p-3 text-xs">
+      <AlertTriangle className="text-warning size-4 shrink-0" />
+      <span>
+        Fora da virada do mês. {consequence} Para atualizar saldos, prefira a virada, em Mês.
+      </span>
+    </p>
+  );
+}
+
 function CashAccountSheet({
   account,
+  closedMonths,
   pending,
   onClose,
   onSave,
 }: {
   account: CashAccountRow;
+  closedMonths: string[];
   pending: boolean;
   onClose: () => void;
   onSave: (account: CashAccountRow) => void;
@@ -1572,7 +1628,7 @@ function CashAccountSheet({
         </Field>
         <Field
           label="Saldo conferido em"
-          hint="A projeção recomeça neste mês. Confira ao fechar o mês: o saldo já conta como o resultado dele."
+          hint="O dia em que você olhou esse saldo no app do banco. A data mais nova entre as contas vale para o caixa todo."
         >
           <Input
             type="date"
@@ -1580,6 +1636,9 @@ function CashAccountSheet({
             onChange={(event) => setForm({ ...form, checkedOn: event.target.value })}
           />
         </Field>
+        {form.checkedOn !== account.checkedOn ? (
+          <OffTurnoverWarning checkedOn={form.checkedOn} closedMonths={closedMonths} />
+        ) : null}
         <Field label="Rendimento">
           <Select
             value={form.indexer ?? "NONE"}

@@ -138,8 +138,8 @@ export interface ProjectionSummary {
   /** Caixa que já existe hoje: a soma dos saldos das contas cadastradas. */
   readonly openingCash: Cents;
   /**
-   * Primeiro mês projetado. Vem do último mês fechado (ou, na falta dele, do
-   * saldo conferido), nunca antes do início do plano — o passado não é
+   * Primeiro mês projetado: o mais novo entre o seguinte ao último fechado e o
+   * do saldo conferido, nunca antes do início do plano — o passado não é
    * replayado porque o caixa de hoje já o contém.
    */
   readonly startMonth: YearMonth;
@@ -241,21 +241,26 @@ function settledThroughDate(input: ProjectionInput): string | null {
  * Primeiro mês que a projeção ainda precisa projetar.
  *
  * Um mês fechado é história declarada: o caixa já contém o resultado dele
- * inteiro, e a projeção pula para o seguinte. Sem nenhum fechamento, o saldo
- * conferido é a evidência que existe, e vale o mês dele — ele está no meio do
- * caminho, mas começar antes seria replayar meses que o saldo já contém.
+ * inteiro, e a projeção pula para o seguinte. O saldo conferido é a outra
+ * evidência, e vale o mês dele — está no meio do caminho, mas começar antes
+ * seria replayar meses que o saldo já contém.
+ *
+ * Com as duas, vale a mais nova. Setembro fechado e saldo conferido em 15/11:
+ * outubro já está no saldo, e recomeçar em outubro o contaria duas vezes.
  *
  * Sem fechamento e sem conta, o plano roda desde o começo — é o que mantém a
  * paridade com a planilha.
  */
 function resumeMonth(input: ProjectionInput): YearMonth {
   const closed = lastClosedMonth(input.closings);
-  if (closed !== null) return addMonths(closed, 1);
+  const afterClosed = closed === null ? null : addMonths(closed, 1);
 
   const conferredOn = latestConferredOn(input.cashAccounts);
-  if (conferredOn !== null) return monthOfISODate(conferredOn);
+  const conferredMonth = conferredOn === null ? null : monthOfISODate(conferredOn);
 
-  return input.startMonth;
+  if (afterClosed === null) return conferredMonth ?? input.startMonth;
+  if (conferredMonth === null) return afterClosed;
+  return conferredMonth > afterClosed ? conferredMonth : afterClosed;
 }
 
 /**
@@ -497,15 +502,21 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
   // O primeiro mês projetado não deposita quando o saldo foi conferido DENTRO
   // dele: parte do mês já está no saldo e não dá para saber quanto.
   //
-  // Dia 1º é a exceção, e é a que salva o fluxo humano: quem confere os saldos
-  // no primeiro dia do mês não tem nada daquele mês no saldo ainda, então ele
-  // deposita inteiro. Sem esta linha, conferir em 01/10 — o jeito natural de
-  // "fechar setembro" — custaria a sobra inteira de outubro.
+  // Duas exceções, e são elas que salvam o fluxo humano:
+  //
+  // - Dia 1º: nada daquele mês está no saldo ainda, então ele deposita inteiro.
+  //   Sem isto, conferir em 01/10 custaria a sobra inteira de outubro.
+  // - Mês anterior fechado: fechar é dizer "a sobra dele foi para as caixinhas,
+  //   a do mês seguinte ainda não". Quem faz a virada de setembro no dia 5 de
+  //   outubro não tem nada de outubro no saldo — a sobra de outubro só vai para
+  //   as caixinhas na virada de outubro.
   const conferredOn = latestConferredOn(input.cashAccounts);
+  const previousMonthClosed = lastClosedMonth(input.closings) === addMonths(startMonth, -1);
   const firstMonthPartiallyLived =
     conferredOn !== null &&
     monthOfISODate(conferredOn) === startMonth &&
-    dayOfISODate(conferredOn) > 1;
+    dayOfISODate(conferredOn) > 1 &&
+    !previousMonthClosed;
 
   const base = computeBaseRows(input, startMonth, settledOn);
 
@@ -663,4 +674,28 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
     cashAnnualYield,
     amortizationAdvice,
   };
+}
+
+/**
+ * Sobra que o plano espera de um mês, mesmo que ele já tenha saído da projeção.
+ *
+ * É a meta do fechamento. Ler a linha da projeção corrente não serve: depois
+ * que você confere os saldos em 01/10, a projeção começa em outubro, e setembro
+ * não está mais nela — a meta congelada virava a sobra de outubro.
+ *
+ * A sobra não depende do caixa (renda menos despesas, parcela e metas do mês),
+ * então a conta projeta sem as contas e só com os fechamentos anteriores ao mês:
+ * é o plano como ele estava quando o mês começou. Nulo para mês anterior ao
+ * início do plano, que não tem meta.
+ */
+export function expectedLeftover(input: ProjectionInput, month: YearMonth): Cents | null {
+  if (isBefore(month, input.startMonth)) return null;
+
+  const projection = projectPlan({
+    ...input,
+    cashAccounts: [],
+    closings: input.closings.filter((closing) => isBefore(closing.month, month)),
+    horizonMonths: Math.max(input.horizonMonths, monthsBetween(input.startMonth, month) + 1),
+  });
+  return projection.months.find((row) => row.month === month)?.leftover ?? null;
 }

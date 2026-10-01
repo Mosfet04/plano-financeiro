@@ -1,5 +1,5 @@
 import type { Cents } from "../shared/money";
-import type { YearMonth } from "../shared/month";
+import { addMonths, endOfMonthDate, monthOfISODate, type YearMonth } from "../shared/month";
 
 /**
  * O resultado real de um mês que já acabou — o registro de "o plano previu ×
@@ -44,4 +44,40 @@ export function lastClosedMonth(closings: readonly MonthClosing[]): YearMonth | 
     if (latest === null || closing.month > latest) latest = closing.month;
   }
   return latest;
+}
+
+/**
+ * O mês já acabou e pode ser fechado: é anterior ao corrente, ou hoje é o
+ * último dia dele.
+ *
+ * O último dia entra porque é quando o salário costuma cair e a sobra vai para
+ * as caixinhas. Antes disso, fechar congelaria um número que ainda vai mudar e
+ * tiraria da projeção uma sobra que ainda está por vir.
+ */
+export function isMonthOver(month: YearMonth, today: string): boolean {
+  const current = monthOfISODate(today);
+  if (month < current) return true;
+  return month === current && today === endOfMonthDate(month);
+}
+
+/**
+ * O mês cuja virada está pendente, ou nulo. É o que os avisos de /resumo e
+ * /mes oferecem.
+ *
+ * Só o mês que acabou de terminar: o corrente no último dia, ou o anterior
+ * depois disso. Um mês velho que ficou aberto não volta a pedir virada; os
+ * saldos de hoje já contêm o resultado dele, e fechar o mês mais recente
+ * resolve a projeção.
+ */
+export function pendingTurnover(
+  today: string,
+  closings: readonly MonthClosing[],
+  planStartMonth: YearMonth
+): YearMonth | null {
+  const current = monthOfISODate(today);
+  const candidate = isMonthOver(current, today) ? current : addMonths(current, -1);
+
+  if (candidate < planStartMonth) return null;
+  if (closings.some((closing) => closing.month === candidate)) return null;
+  return candidate;
 }

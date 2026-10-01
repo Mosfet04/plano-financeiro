@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Clock, PlanRepository, TransactionRepository } from "@/core/application/ports";
 import { CloseMonthUseCase } from "@/core/application/use-cases/close-month.use-case";
+import {
+  buildProjectionInput,
+  DEFAULT_HORIZON_MONTHS,
+} from "@/core/application/use-cases/get-projection.use-case";
+import { Indexer } from "@/core/domain/investment/investment.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
+import { projectPlan } from "@/core/domain/projection/project-plan";
 import { reais } from "@/core/domain/shared/money";
 import { monthOf } from "@/core/domain/shared/month";
 import type { Transaction } from "@/core/domain/transaction/transaction.entity";
@@ -57,9 +63,7 @@ function build(transactions: Transaction[], seeded = seed()) {
 }
 
 /** `amount` vem em reais para o teste ficar legível; vira centavos aqui. */
-function expense(
-  partial: Omit<Partial<Transaction>, "amount"> & { amount: number }
-): Transaction {
+function expense(partial: Omit<Partial<Transaction>, "amount"> & { amount: number }): Transaction {
   return {
     id: `t-${Math.random()}`,
     planId: "plan-1",
@@ -166,6 +170,53 @@ describe("CloseMonthUseCase", () => {
     expect(closing.slack).toBe(closing.leftover - closing.planTarget);
     expect(closing.onPlan).toBe(closing.leftover >= closing.planTarget);
     expect(closing.freePerDay).toBe(Math.round(Math.max(0, closing.slack) / closing.daysRemaining));
+  });
+
+  /**
+   * A regressão da virada: conferidos os saldos em 01/11, a projeção começa em
+   * novembro e outubro sai dela. A meta de outubro caía na sobra de novembro —
+   * e era exatamente a ordem que a tela pedia (confira os saldos, depois feche).
+   * Novembro tem 13º, então as duas sobras são bem diferentes.
+   */
+  it("mês que já saiu da projeção mantém a meta dele, não a do mês seguinte", async () => {
+    const seeded = seed();
+    const snapshot: PlanSnapshot = {
+      ...snapshotFrom(seeded),
+      // Caixa folgado para o plano não ter buraco: sem reforço, a meta é só a sobra.
+      cashAccounts: [
+        {
+          id: "nu",
+          planId: "plan-1",
+          name: "Caixinha",
+          balance: reais(200_000),
+          indexer: Indexer.CDI_PCT,
+          indexerValue: 1,
+          taxExempt: false,
+          checkedOn: "2026-11-01",
+        },
+      ],
+    };
+    const plans = {
+      loadSnapshot: vi.fn().mockResolvedValue(snapshot),
+    } as unknown as PlanRepository;
+    const repo = { listByMonth: vi.fn().mockResolvedValue([]) } as unknown as TransactionRepository;
+    const clock: Clock = { now: () => new Date("2026-11-01T12:00:00Z"), today: () => "2026-11-01" };
+
+    const result = await new CloseMonthUseCase(plans, repo, clock).execute({
+      planId: "plan-1",
+      month: monthOf(2026, 10),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const continuous = projectPlan(
+      buildProjectionInput(snapshotFrom(seeded), "2026-11-01", DEFAULT_HORIZON_MONTHS)
+    );
+    const outubro = continuous.months.find((m) => m.month === "2026-10")!;
+    const novembro = continuous.months.find((m) => m.month === "2026-11")!;
+
+    expect(outubro.leftover).not.toBe(novembro.leftover);
+    expect(result.value.planTarget).toBe(outubro.leftover);
   });
 
   it("plano inexistente devolve erro em vez de estourar", async () => {

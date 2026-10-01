@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
 import { Indexer } from "@/core/domain/investment/investment.entity";
 import { projectPlan, type ProjectionInput } from "@/core/domain/projection/project-plan";
-import { blendedCashAnnualNet } from "@/core/domain/projection/yield";
+import {
+  blendedCashAnnualNet,
+  cashAccountAnnualNet,
+  estimatedYieldBetween,
+} from "@/core/domain/projection/yield";
 import { reais, toReais, type Cents } from "@/core/domain/shared/money";
 import { ratesSnapshot, spreadsheetProjectionInput } from "../../fixtures/plano-da-planilha";
 
@@ -244,5 +248,33 @@ describe("aplicações contra a data conferida", () => {
     const novembro = result.months.find((m) => m.month === "2026-11")!;
 
     expect(novembro.maturedInvestments).toBeGreaterThan(0);
+  });
+});
+
+describe("rendimento estimado entre duas datas", () => {
+  const conta = account({ balance: reais(10_000), checkedOn: "2026-09-10" });
+  const taxa = cashAccountAnnualNet(conta, ratesSnapshot, 0.15);
+
+  it("um ano inteiro rende a taxa líquida anual", () => {
+    const rendeu = estimatedYieldBetween(conta, ratesSnapshot, 0.15, "2026-01-01", "2027-01-01");
+    expect(toReais(rendeu)).toBeCloseTo(10_000 * taxa, 0);
+  });
+
+  it("21 dias rendem a fração composta do ano", () => {
+    const rendeu = estimatedYieldBetween(conta, ratesSnapshot, 0.15, "2026-09-10", "2026-10-01");
+    expect(toReais(rendeu)).toBeCloseTo(10_000 * (Math.pow(1 + taxa, 21 / 365) - 1), 1);
+    expect(rendeu).toBeGreaterThan(0);
+  });
+
+  it("mesma data ou data anterior não rende", () => {
+    expect(estimatedYieldBetween(conta, ratesSnapshot, 0.15, "2026-10-01", "2026-10-01")).toBe(0);
+    expect(estimatedYieldBetween(conta, ratesSnapshot, 0.15, "2026-10-01", "2026-09-01")).toBe(0);
+  });
+
+  it("conta corrente não rende", () => {
+    const corrente = account({ balance: reais(2_000), indexer: null });
+    expect(estimatedYieldBetween(corrente, ratesSnapshot, 0.15, "2026-09-01", "2026-10-01")).toBe(
+      0
+    );
   });
 });

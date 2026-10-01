@@ -104,3 +104,10 @@ export function endOfMonthDate(value: YearMonth): string {
 export function dayOfISODate(isoDate: string): number {
   return Number(isoDate.slice(8, 10));
 }
+
+/** Dias corridos de uma data civil até outra (negativo se `to` for anterior). */
+export function daysBetweenDates(from: string, to: string): number {
+  const utc = (isoDate: string) =>
+    Date.UTC(Number(isoDate.slice(0, 4)), Number(isoDate.slice(5, 7)) - 1, dayOfISODate(isoDate));
+  return Math.round((utc(to) - utc(from)) / 86_400_000);
+}

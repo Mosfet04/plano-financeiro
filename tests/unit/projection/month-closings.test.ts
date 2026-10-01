@@ -3,11 +3,17 @@ import { describe, expect, it } from "vitest";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
 import {
   closingSlack,
+  isMonthOver,
   lastClosedMonth,
+  pendingTurnover,
   type MonthClosing,
 } from "@/core/domain/closing/month-closing.entity";
 import { Indexer } from "@/core/domain/investment/investment.entity";
-import { projectPlan, type ProjectionInput } from "@/core/domain/projection/project-plan";
+import {
+  expectedLeftover,
+  projectPlan,
+  type ProjectionInput,
+} from "@/core/domain/projection/project-plan";
 import { reais, type Cents } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
 import { spreadsheetProjectionInput } from "../../fixtures/plano-da-planilha";
@@ -53,6 +59,51 @@ describe("entidade de fechamento", () => {
 
   it("sem fechamentos não há último mês", () => {
     expect(lastClosedMonth([])).toBeNull();
+  });
+});
+
+describe("quando a virada abre", () => {
+  const SET = "2026-09" as YearMonth;
+
+  it("mês anterior ao corrente já acabou", () => {
+    expect(isMonthOver(SET, "2026-10-01")).toBe(true);
+    expect(isMonthOver(SET, "2026-12-20")).toBe(true);
+  });
+
+  /** O último dia é quando o salário costuma cair e a sobra vai para as caixinhas. */
+  it("o mês corrente abre no último dia", () => {
+    expect(isMonthOver(SET, "2026-09-30")).toBe(true);
+    expect(isMonthOver(SET, "2026-09-29")).toBe(false);
+    expect(isMonthOver(SET, "2026-09-01")).toBe(false);
+  });
+
+  it("mês futuro não acabou", () => {
+    expect(isMonthOver("2026-11" as YearMonth, "2026-10-31")).toBe(false);
+  });
+});
+
+describe("virada pendente", () => {
+  const INICIO = "2026-08" as YearMonth;
+
+  it("no dia 1º é a do mês que acabou de terminar", () => {
+    expect(pendingTurnover("2026-10-01", [], INICIO)).toBe("2026-09");
+  });
+
+  it("no último dia já é a do próprio mês", () => {
+    expect(pendingTurnover("2026-09-30", [], INICIO)).toBe("2026-09");
+  });
+
+  it("some quando o mês está fechado", () => {
+    expect(pendingTurnover("2026-10-01", [closing("2026-09")], INICIO)).toBeNull();
+  });
+
+  /** Os saldos de hoje já contêm o mês velho; quem resolve é fechar o recente. */
+  it("um mês velho aberto não volta a pedir virada", () => {
+    expect(pendingTurnover("2026-11-10", [closing("2026-10")], INICIO)).toBeNull();
+  });
+
+  it("antes do início do plano não há virada", () => {
+    expect(pendingTurnover("2026-08-15", [], INICIO)).toBeNull();
   });
 });
 
@@ -177,10 +228,10 @@ describe("conferência no dia 1º", () => {
     expect(result.months[0].toReserve).toBeGreaterThan(0);
   });
 
-  it("do dia 2 em diante o mês não deposita", () => {
+  it("sem o mês anterior fechado, do dia 2 em diante o mês não deposita", () => {
     const result = project({
       cashAccounts: [{ ...caixinha, checkedOn: "2026-10-02" }],
-      closings: [closing("2026-09")],
+      closings: [],
     });
 
     expect(result.startMonth).toBe("2026-10");
@@ -271,5 +322,122 @@ describe("aplicações contra o mês fechado", () => {
     const setembro = soConferido.months.find((m) => m.month === "2026-09")!;
     expect(setembro.maturedInvestments).toBe(reais(5000));
     expect(fechado.months.every((m) => m.maturedInvestments !== reais(5000))).toBe(true);
+  });
+});
+
+describe("virada feita depois do dia 1º", () => {
+  /**
+   * Fechar setembro é dizer "a sobra dele foi para as caixinhas, a de outubro
+   * ainda não". Quem faz a virada no dia 5 confere saldos que não têm nada de
+   * outubro — descartar a sobra de outubro aí era perder um mês inteiro.
+   */
+  it("com o mês anterior fechado, conferir no dia 5 ainda deposita o mês inteiro", () => {
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-05" }],
+      closings: [closing("2026-09")],
+    });
+
+    expect(result.startMonth).toBe("2026-10");
+    expect(result.months[0].toReserve).toBeGreaterThan(0);
+  });
+
+  it("e deposita o mesmo que a virada feita no dia 1º", () => {
+    const noDia1 = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-01" }],
+      closings: [closing("2026-09")],
+    });
+    const noDia5 = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-05" }],
+      closings: [closing("2026-09")],
+    });
+
+    expect(noDia5.months[0].toReserve).toBe(noDia1.months[0].toReserve);
+    expect(noDia5.minCash).toBe(noDia1.minCash);
+  });
+
+  it("fechar um mês mais antigo que o anterior não destrava o depósito", () => {
+    // Agosto fechado, setembro não, saldo de 05/10: outubro está pela metade.
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-05" }],
+      closings: [closing("2026-08")],
+    });
+
+    expect(result.startMonth).toBe("2026-10");
+    expect(result.months[0].toReserve).toBe(0);
+  });
+});
+
+describe("saldo conferido depois do último fechamento", () => {
+  /**
+   * Setembro fechado e saldo conferido em 15/11: outubro já está dentro do
+   * saldo. Recomeçar em outubro, como o fechamento sozinho mandaria, contaria
+   * a sobra de outubro duas vezes.
+   */
+  it("recomeça no mês do saldo, não no seguinte ao fechado", () => {
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-11-15" }],
+      closings: [closing("2026-09")],
+    });
+
+    expect(result.startMonth).toBe("2026-11");
+    expect(result.months.some((m) => m.month === "2026-10")).toBe(false);
+  });
+
+  it("e esse mês, conferido pela metade e sem o anterior fechado, não deposita", () => {
+    const result = project({
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-11-15" }],
+      closings: [closing("2026-09")],
+    });
+
+    expect(result.months[0].toReserve).toBe(0);
+  });
+});
+
+describe("sobra esperada de um mês", () => {
+  const continuous = () => project({});
+
+  /**
+   * É a meta do fechamento. Depois que você confere os saldos em 01/10, a
+   * projeção começa em outubro e setembro sai dela — a meta de setembro não
+   * pode virar a sobra de outubro.
+   */
+  it("mês que já saiu da projeção mantém a sobra que o plano esperava dele", () => {
+    const input = {
+      ...spreadsheetProjectionInput(),
+      cashAccounts: [{ ...caixinha, checkedOn: "2026-10-01" }],
+      closings: [closing("2026-08")],
+    };
+    const result = projectPlan(input);
+    const setembro = continuous().months.find((m) => m.month === "2026-09")!;
+
+    expect(result.months.some((m) => m.month === "2026-09")).toBe(false);
+    expect(expectedLeftover(input, "2026-09" as YearMonth)).toBe(setembro.leftover);
+  });
+
+  it("não depende do caixa nem dos fechamentos posteriores", () => {
+    const comCaixa = {
+      ...spreadsheetProjectionInput(),
+      cashAccounts: [{ ...caixinha, balance: reais(80_000) }],
+      closings: [closing("2026-10"), closing("2026-11")],
+    };
+    const outubro = continuous().months.find((m) => m.month === "2026-10")!;
+
+    expect(expectedLeftover(comCaixa, "2026-10" as YearMonth)).toBe(outubro.leftover);
+  });
+
+  it("mês ainda na projeção devolve a mesma sobra da linha", () => {
+    const input = { ...spreadsheetProjectionInput(), cashAccounts: [caixinha] };
+    const linha = projectPlan(input).months.find((m) => m.month === "2026-10")!;
+
+    expect(expectedLeftover(input, "2026-10" as YearMonth)).toBe(linha.leftover);
+  });
+
+  it("mês anterior ao início do plano não tem meta", () => {
+    expect(expectedLeftover(spreadsheetProjectionInput(), "2026-01" as YearMonth)).toBeNull();
+  });
+
+  it("mês além do horizonte padrão ainda é calculado", () => {
+    const input = { ...spreadsheetProjectionInput(), horizonMonths: 12 };
+    expect(expectedLeftover(input, "2030-06" as YearMonth)).not.toBeNull();
   });
 });

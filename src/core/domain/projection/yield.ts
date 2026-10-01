@@ -3,7 +3,8 @@ import type { Investment } from "../investment/investment.entity";
 import { Indexer } from "../investment/investment.entity";
 import type { MarketRatesSnapshot } from "../market/market-rates.entity";
 import { YieldMode, type YieldPolicy } from "../plan/plan.entity";
-import { addCents, type Cents } from "../shared/money";
+import { addCents, cents, ZERO, type Cents } from "../shared/money";
+import { daysBetweenDates } from "../shared/month";
 
 /** Converte taxa ao ano em taxa ao mês, capitalizando. */
 export function monthlyFromAnnual(annual: number): number {
@@ -77,6 +78,27 @@ export function cashAccountAnnualNet(
 ): number {
   const gross = indexedAnnualGross(account.indexer, account.indexerValue, rates);
   return account.taxExempt ? gross : gross * (1 - incomeTaxRate);
+}
+
+/**
+ * Quanto a conta deve ter rendido entre duas datas civis, à taxa líquida de
+ * hoje. É o "esperado" da virada do mês: saldo anterior + isto.
+ *
+ * Dias corridos sobre 365 em vez de dias úteis sobre 252. Erra uns centavos
+ * para cima ou para baixo, e é uma estimativa para comparar com o app do banco.
+ */
+export function estimatedYieldBetween(
+  account: CashAccount,
+  rates: MarketRatesSnapshot | null,
+  incomeTaxRate: number,
+  fromDate: string,
+  toDate: string
+): Cents {
+  const days = daysBetweenDates(fromDate, toDate);
+  if (days <= 0) return ZERO;
+
+  const annual = cashAccountAnnualNet(account, rates, incomeTaxRate);
+  return cents(account.balance * (Math.pow(1 + annual, days / 365) - 1));
 }
 
 /**
