@@ -119,6 +119,7 @@ export class DrizzlePlanRepository implements PlanRepository {
             monthlyBudgetCents: category.monthlyBudget,
             defaultPaymentMethod: category.defaultPaymentMethod,
             color: category.color,
+            icon: category.icon,
             active: category.active,
             sortOrder: category.sortOrder,
           }))

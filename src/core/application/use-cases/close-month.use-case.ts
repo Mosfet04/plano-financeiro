@@ -1,16 +1,23 @@
 import { PaymentMethod, type BudgetCategory } from "@/core/domain/budget/budget-category.entity";
 import { ItemDirection, type RecurringItem } from "@/core/domain/expense/recurring-item.entity";
-import { expectedLeftover, projectPlan } from "@/core/domain/projection/project-plan";
 import {
-  addCents,
-  cents,
-  maxCents,
-  minCents,
-  subCents,
-  ZERO,
-  type Cents,
-} from "@/core/domain/shared/money";
-import { daysInMonth, isWithin, monthOfISODate, type YearMonth } from "@/core/domain/shared/month";
+  expectedMonthRow,
+  projectPlan,
+  type MonthProjection,
+} from "@/core/domain/projection/project-plan";
+import { addCents, cents, maxCents, subCents, ZERO, type Cents } from "@/core/domain/shared/money";
+import {
+  endOfMonthDate,
+  isWithin,
+  monthOfISODate,
+  type YearMonth,
+} from "@/core/domain/shared/month";
+import { dailyAllowance, type DailyAllowance } from "@/core/domain/spending/daily-allowance";
+import {
+  moveMealCardOverflow,
+  spendingByDay,
+  type SpendingBySource,
+} from "@/core/domain/spending/month-ledger";
 import { DomainError, err, ok, type Result } from "@/core/domain/shared/result";
 import { TransactionKind, type Transaction } from "@/core/domain/transaction/transaction.entity";
 
@@ -44,7 +51,11 @@ export interface CloseMonthOutput {
   readonly mealCardSpent: Cents;
   readonly mealCardRemaining: Cents;
 
-  readonly salary: Cents;
+  /** Renda prevista do mês: salário, 13º, PLR e abono de férias, como na projeção. */
+  readonly income: Cents;
+  /** Moradia com a parcela, já abatidas as entradas do grupo (auxílio home office). */
+  readonly housing: Cents;
+  readonly otherFixed: Cents;
   readonly extraIncome: Cents;
   readonly variableSpent: Cents;
   readonly goalSpent: Cents;
@@ -58,9 +69,13 @@ export interface CloseMonthOutput {
   /** Sobra menos meta. Negativo = o mês fecha abaixo do previsto. */
   readonly slack: Cents;
 
-  readonly daysRemaining: number;
-  readonly freePerDay: Cents;
-  readonly leisurePerDay: Cents;
+  /** Gasto do mês por fonte, cortado em hoje, antes de o estouro do VA ir para o Dinheiro. */
+  readonly rawSpending: SpendingBySource;
+  /** Quanto dá para gastar hoje, por fonte. Num mês que já passou, vale o último dia. */
+  readonly allowance: {
+    readonly cash: DailyAllowance;
+    readonly mealCard: DailyAllowance;
+  };
 }
 
 export interface CloseMonthInput {
@@ -69,8 +84,13 @@ export interface CloseMonthInput {
 }
 
 /**
- * Reproduz a aba "2. Meu mês": orçado × gasto, saldo do vale-refeição,
- * fechamento e o painel "posso gastar isso?".
+ * Reproduz a aba "2. Meu mês": orçado × gasto, saldo do VA, fechamento e o
+ * quanto dá para gastar hoje.
+ *
+ * O lado do mês que não depende de lançamento — renda, moradia, parcela,
+ * contas fixas — vem da mesma linha da projeção que dá a meta. Se viesse de
+ * outra conta, a folga mediria a diferença entre as duas contas, não o gasto:
+ * era isso que zerava novembro (o 13º estava só na meta).
  */
 export class CloseMonthUseCase {
   constructor(
@@ -94,8 +114,7 @@ export class CloseMonthUseCase {
     const categories: CategorySpending[] = snapshot.categories
       .filter((category) => category.active)
       .map((category) => {
-        // Só gasto em dinheiro consome o orçamento: o que sai do vale-refeição
-        // tem controle próprio.
+        // Só gasto em dinheiro consome o orçamento: o VA tem controle próprio.
         const spent = spentBy(
           (t) =>
             t.kind === TransactionKind.EXPENSE &&
@@ -123,40 +142,55 @@ export class CloseMonthUseCase {
 
     const fixedTotal = addCents(...fixedBills.map((bill) => bill.amount));
 
-    const mealCardSpent = spentBy((t) => t.paymentMethod === PaymentMethod.MEAL_CARD);
-    const mealCardRemaining = subCents(snapshot.income.mealCardMonthly, mealCardSpent);
+    const projectionInput = buildProjectionInput(snapshot, today, DEFAULT_HORIZON_MONTHS);
+    const topUp = projectPlan(projectionInput).monthlyTopUpToFixHole;
+    const expected =
+      expectedMonthRow(projectionInput, input.month) ?? fallbackRow(snapshot, fixedTotal);
+
+    const credit = snapshot.income.mealCardMonthly;
+    const mealCardSpent = spentBy(
+      (t) => t.kind === TransactionKind.EXPENSE && t.paymentMethod === PaymentMethod.MEAL_CARD
+    );
+    const mealCardRemaining = subCents(credit, mealCardSpent);
     const mealCardOverflow = maxCents(cents(-mealCardRemaining), ZERO);
 
     const extraIncome = spentBy((t) => t.kind === TransactionKind.EXTRA_INCOME);
-    const variableSpent = addCents(...categories.map((c) => c.spent));
+    const variableSpent = spentBy(
+      (t) => t.kind === TransactionKind.EXPENSE && t.paymentMethod === PaymentMethod.CASH
+    );
     const goalSpent = spentBy((t) => t.kind === TransactionKind.GOAL);
 
     const leftover = cents(
-      snapshot.income.netSalary +
+      expected.income -
+        expected.housing -
+        expected.otherFixed +
         extraIncome -
-        fixedTotal -
         variableSpent -
         goalSpent -
         mealCardOverflow
     );
 
-    // Meta do mês: o que o plano espera de sobra dele, mais o reforço necessário
-    // caso alguma meta tenha furado o caixa do plano. A sobra esperada vem de
-    // `expectedLeftover`, não da linha da projeção corrente: depois da virada o
-    // mês já saiu da projeção, e a meta virava a sobra do mês seguinte.
-    const projectionInput = buildProjectionInput(snapshot, today, DEFAULT_HORIZON_MONTHS);
-    const projection = projectPlan(projectionInput);
-    const expected = expectedLeftover(projectionInput, input.month) ?? ZERO;
-    const planTarget = addCents(expected, projection.monthlyTopUpToFixHole);
+    // Meta do mês: a sobra que o plano espera dele, mais o reforço que fecha o
+    // buraco do caixa.
+    const planTarget = addCents(expected.leftover, topUp);
     const slack = subCents(leftover, planTarget);
 
-    const daysRemaining =
-      monthOfISODate(today) === input.month
-        ? Math.max(1, daysInMonth(input.month) - Number(today.slice(8, 10)) + 1)
-        : daysInMonth(input.month);
+    // Dinheiro do mês = entradas − o que ainda vai sair (moradia, parcela,
+    // contas, metas) − o que o plano manda guardar. Algebricamente é a soma das
+    // categorias menos o reforço, mais a renda extra.
+    const cashBudget = cents(
+      expected.income +
+        extraIncome -
+        expected.housing -
+        expected.otherFixed -
+        expected.goals -
+        planTarget
+    );
 
-    const positiveSlack = maxCents(slack, ZERO);
-    const leisure = categories.find((c) => /lazer/i.test(c.category.name));
+    // Num mês que já passou, o "hoje" é o último dia dele.
+    const asOf = monthOfISODate(today) === input.month ? today : endOfMonthDate(input.month);
+    const rawSpending = spendingByDay(entries, snapshot.goals, input.month, asOf);
+    const spending = moveMealCardOverflow(rawSpending, credit);
 
     return ok({
       month: input.month,
@@ -164,10 +198,12 @@ export class CloseMonthUseCase {
       categories,
       fixedBills,
       fixedTotal,
-      mealCardCredited: snapshot.income.mealCardMonthly,
+      mealCardCredited: credit,
       mealCardSpent,
       mealCardRemaining,
-      salary: snapshot.income.netSalary,
+      income: expected.income,
+      housing: expected.housing,
+      otherFixed: expected.otherFixed,
       extraIncome,
       variableSpent,
       goalSpent,
@@ -176,12 +212,38 @@ export class CloseMonthUseCase {
       planTarget,
       onPlan: leftover >= planTarget,
       slack,
-      daysRemaining,
-      freePerDay: cents(positiveSlack / daysRemaining),
-      // O rolê tem que caber nos dois: no orçamento de lazer e na folga da meta.
-      leisurePerDay: leisure
-        ? cents(minCents(maxCents(leisure.remaining, ZERO), positiveSlack) / daysRemaining)
-        : cents(positiveSlack / daysRemaining),
+      rawSpending,
+      allowance: {
+        cash: dailyAllowance({
+          monthBudget: cashBudget,
+          spentBeforeToday: spending.cash.beforeToday,
+          spentToday: spending.cash.today,
+          today: asOf,
+        }),
+        mealCard: dailyAllowance({
+          monthBudget: credit,
+          spentBeforeToday: spending.mealCard.beforeToday,
+          spentToday: spending.mealCard.today,
+          today: asOf,
+        }),
+      },
     });
   }
+}
+
+/** Mês anterior ao plano não tem linha projetada: só salário e contas fixas. */
+function fallbackRow(
+  snapshot: { income: { netSalary: Cents }; categories: readonly BudgetCategory[] },
+  fixedTotal: Cents
+): Pick<MonthProjection, "income" | "housing" | "otherFixed" | "goals" | "leftover"> {
+  const variable = addCents(
+    ...snapshot.categories.filter((c) => c.active).map((c) => c.monthlyBudget)
+  );
+  return {
+    income: snapshot.income.netSalary,
+    housing: ZERO,
+    otherFixed: fixedTotal,
+    goals: ZERO,
+    leftover: cents(snapshot.income.netSalary - fixedTotal - variable),
+  };
 }

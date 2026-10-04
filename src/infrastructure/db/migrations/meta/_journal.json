@@ -36,6 +36,20 @@
       "when": 1789013940042,
       "tag": "0004_polite_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791135269694,
+      "tag": "0005_category_icon",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791136695381,
+      "tag": "0006_watch_devices",
+      "breakpoints": true
     }
   ]
 }

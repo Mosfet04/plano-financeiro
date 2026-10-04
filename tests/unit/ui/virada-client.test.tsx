@@ -21,9 +21,10 @@ const data: ViradaData = {
   isRedo: false,
   note: "",
   summary: {
-    salary: 635_488,
+    income: 635_488,
+    housing: 123_357,
     extraIncome: 0,
-    fixedTotal: 186_582,
+    otherFixed: 63_225,
     variableSpent: 70_233,
     goalSpent: 0,
     mealCardOverflow: 0,

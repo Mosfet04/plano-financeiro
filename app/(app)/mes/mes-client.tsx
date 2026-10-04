@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Trash2,
   Undo2,
+  Watch,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,7 +17,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { reopenMonth } from "@/app/actions/closing.actions";
-import { deleteTransaction } from "@/app/actions/transaction.actions";
+import { deleteTransaction, setTransactionPaymentMethod } from "@/app/actions/transaction.actions";
 import { TurnoverBanner } from "@/components/mes/turnover-banner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +65,9 @@ export interface MesData {
   mealCardCredited: number;
   mealCardSpent: number;
   mealCardRemaining: number;
-  salary: number;
+  income: number;
+  housing: number;
+  otherFixed: number;
   extraIncome: number;
   variableSpent: number;
   goalSpent: number;
@@ -73,9 +76,7 @@ export interface MesData {
   planTarget: number;
   onPlan: boolean;
   slack: number;
-  daysRemaining: number;
-  freePerDay: number;
-  leisurePerDay: number;
+  allowance: Record<"cash" | "mealCard", Allowance>;
   transactions: Array<{
     id: string;
     date: string;
@@ -83,11 +84,21 @@ export interface MesData {
     kind: string;
     categoryName: string | null;
     paymentMethod: string;
+    fromWatch: boolean;
     amount: number;
   }>;
 }
 
+interface Allowance {
+  daysLeft: number;
+  dayBudget: number;
+  remainingToday: number;
+  monthRemaining: number;
+}
+
 const money = (value: number) => formatBRL(value as Cents);
+
+const SOURCE_LABELS = { CASH: "Dinheiro", MEAL_CARD: "VA" } as const;
 
 export function MesClient({ data }: { data: MesData }) {
   const router = useRouter();
@@ -103,6 +114,20 @@ export function MesClient({ data }: { data: MesData }) {
       return;
     }
     toast.success("Lançamento apagado.");
+    router.refresh();
+  }
+
+  async function handleToggleSource(transaction: MesData["transactions"][number]) {
+    setPendingId(transaction.id);
+    const result = await setTransactionPaymentMethod({
+      id: transaction.id,
+      paymentMethod: transaction.paymentMethod === "MEAL_CARD" ? "CASH" : "MEAL_CARD",
+    });
+    setPendingId(null);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
     router.refresh();
   }
 
@@ -133,29 +158,25 @@ export function MesClient({ data }: { data: MesData }) {
           }
         />
         {data.nextMonth === null ? (
-          <Stat
-            label="Livre por dia"
-            value={money(data.freePerDay)}
-            hint={`Faltam ${data.daysRemaining} dia(s) no mês.`}
-          />
+          <>
+            <TodayStat label="Hoje · Dinheiro" allowance={data.allowance.cash} />
+            <TodayStat label="Hoje · VA" allowance={data.allowance.mealCard} />
+          </>
         ) : (
-          // Mês que já passou não tem "por dia" — o que interessa é quanto saiu.
-          <Stat
-            label="Gasto em dinheiro"
-            value={money(data.variableSpent)}
-            hint="Gastos variáveis, fora o vale-refeição."
-          />
+          // Mês que já passou não tem "hoje" — o que interessa é quanto saiu.
+          <>
+            <Stat
+              label="Gasto em dinheiro"
+              value={money(data.variableSpent)}
+              hint="Gastos variáveis, fora o VA."
+            />
+            <Stat
+              label="Sobrou no VA"
+              value={money(data.mealCardRemaining)}
+              tone={data.mealCardRemaining >= 0 ? "positive" : "negative"}
+            />
+          </>
         )}
-        <Stat
-          label="Ainda tem no vale-refeição"
-          value={money(data.mealCardRemaining)}
-          tone={data.mealCardRemaining > 0 ? "positive" : "negative"}
-          hint={
-            data.mealCardRemaining > 0
-              ? "Enquanto sobrar aqui, comida não custa do salário."
-              : "Zerado: cada refeição agora sai do bolso."
-          }
-        />
       </section>
 
       <section className="grid gap-3 lg:grid-cols-2">
@@ -163,7 +184,7 @@ export function MesClient({ data }: { data: MesData }) {
           <CardHeader>
             <CardTitle>Onde você pode gastar</CardTitle>
             <p className="text-fg-muted text-xs">
-              Só gasto em dinheiro consome o orçamento. O vale-refeição tem controle próprio.
+              Só gasto em dinheiro consome o orçamento. O VA tem controle próprio.
             </p>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -192,13 +213,14 @@ export function MesClient({ data }: { data: MesData }) {
               <CardTitle>Fechamento</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5 text-sm">
-              <Line label="Salário" value={data.salary} />
+              <Line label="Renda do mês" value={data.income} />
               {data.extraIncome > 0 ? <Line label="Renda extra" value={data.extraIncome} /> : null}
-              <Line label="Contas fixas" value={-data.fixedTotal} />
+              <Line label="Moradia e parcela" value={-data.housing} />
+              <Line label="Contas fixas" value={-data.otherFixed} />
               <Line label="Gastos variáveis" value={-data.variableSpent} />
               {data.goalSpent > 0 ? <Line label="Metas" value={-data.goalSpent} /> : null}
               {data.mealCardOverflow > 0 ? (
-                <Line label="Estourou o vale-refeição" value={-data.mealCardOverflow} />
+                <Line label="Estourou o VA" value={-data.mealCardOverflow} />
               ) : null}
               <div className="border-stroke-subtle mt-1 border-t pt-2">
                 <Line label="Sobrou" value={data.leftover} strong />
@@ -252,10 +274,25 @@ export function MesClient({ data }: { data: MesData }) {
                       month: "2-digit",
                     })}
                     {transaction.categoryName ? ` · ${transaction.categoryName}` : null}
-                    {transaction.paymentMethod === "MEAL_CARD" ? (
-                      <Badge tone="brand">vale-refeição</Badge>
+                    {transaction.kind === "EXPENSE" ? (
+                      <button
+                        type="button"
+                        title="Trocar a fonte"
+                        onClick={() => handleToggleSource(transaction)}
+                        disabled={pendingId === transaction.id}
+                        className="disabled:opacity-40"
+                      >
+                        <Badge
+                          tone={transaction.paymentMethod === "MEAL_CARD" ? "brand" : "neutral"}
+                        >
+                          {SOURCE_LABELS[transaction.paymentMethod as keyof typeof SOURCE_LABELS]}
+                        </Badge>
+                      </button>
                     ) : null}
                     {transaction.kind === "GOAL" ? <Badge tone="neutral">meta</Badge> : null}
+                    {transaction.fromWatch ? (
+                      <Watch className="size-3.5" aria-label="Lançado pelo relógio" />
+                    ) : null}
                     {transaction.kind === "EXTRA_INCOME" ? (
                       <Badge tone="success">entrada</Badge>
                     ) : null}
@@ -287,6 +324,17 @@ export function MesClient({ data }: { data: MesData }) {
 
       <HistoryCard history={data.history} />
     </div>
+  );
+}
+
+function TodayStat({ label, allowance }: { label: string; allowance: Allowance }) {
+  return (
+    <Stat
+      label={label}
+      value={money(allowance.remainingToday)}
+      tone={allowance.remainingToday >= 0 ? "positive" : "negative"}
+      hint={`de ${money(allowance.dayBudget)} hoje · restam ${money(allowance.monthRemaining)} em ${allowance.daysLeft} dia(s)`}
+    />
   );
 }
 

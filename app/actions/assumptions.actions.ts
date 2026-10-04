@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import type { PaymentMethod } from "@/core/domain/budget/budget-category.entity";
+import { CATEGORY_ICONS, type PaymentMethod } from "@/core/domain/budget/budget-category.entity";
 import type { ItemDirection, ItemGroup } from "@/core/domain/expense/recurring-item.entity";
 import type { AmortizationSystem } from "@/core/domain/financing/financing.entity";
 import type { Indexer } from "@/core/domain/investment/investment.entity";
@@ -139,6 +139,7 @@ const categorySchema = z.object({
   monthlyBudget: z.number().min(0).max(1_000_000),
   defaultPaymentMethod: z.enum(["MEAL_CARD", "CASH"]).default("CASH"),
   color: z.string().trim().min(1).max(20).default("chart-1"),
+  icon: z.enum(CATEGORY_ICONS).default("tag"),
   active: z.boolean().default(true),
   sortOrder: z.number().int().min(0).default(0),
 });
@@ -163,6 +164,7 @@ export async function saveBudgetCategory(input: z.input<typeof categorySchema>) 
     monthlyBudget: reais(d.monthlyBudget),
     defaultPaymentMethod: d.defaultPaymentMethod as PaymentMethod,
     color: d.color,
+    icon: d.icon,
     active: d.active,
     sortOrder: d.sortOrder,
   });

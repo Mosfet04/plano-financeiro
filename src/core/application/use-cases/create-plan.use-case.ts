@@ -1,4 +1,8 @@
-import { PaymentMethod, type BudgetCategory } from "@/core/domain/budget/budget-category.entity";
+import {
+  PaymentMethod,
+  type BudgetCategory,
+  type CategoryIcon,
+} from "@/core/domain/budget/budget-category.entity";
 import {
   YieldMode,
   type IncomeSettings,
@@ -23,13 +27,13 @@ export const DEFAULT_RESERVE_MONTHS = 3;
  * "você ainda não definiu". Os medidores tratam zero como 0% (veja
  * `close-month.use-case`), então nada aparece estourado no primeiro dia.
  */
-const STARTER_CATEGORIES: ReadonlyArray<readonly [string, string, PaymentMethod]> = [
-  ["Mercado", "chart-1", PaymentMethod.MEAL_CARD],
-  ["Transporte", "chart-2", PaymentMethod.CASH],
-  ["Saúde e farmácia", "chart-3", PaymentMethod.CASH],
-  ["Casa", "chart-4", PaymentMethod.CASH],
-  ["Lazer", "chart-5", PaymentMethod.CASH],
-  ["Assinaturas", "chart-6", PaymentMethod.CASH],
+const STARTER_CATEGORIES: ReadonlyArray<readonly [string, string, PaymentMethod, CategoryIcon]> = [
+  ["Mercado", "chart-1", PaymentMethod.MEAL_CARD, "shopping-cart"],
+  ["Transporte", "chart-2", PaymentMethod.CASH, "car"],
+  ["Saúde e farmácia", "chart-3", PaymentMethod.CASH, "pill"],
+  ["Casa", "chart-4", PaymentMethod.CASH, "house"],
+  ["Lazer", "chart-5", PaymentMethod.CASH, "star"],
+  ["Assinaturas", "chart-6", PaymentMethod.CASH, "repeat"],
 ];
 
 export interface CreatePlanInput {
@@ -99,13 +103,14 @@ export class CreatePlanUseCase {
     };
 
     const categories: BudgetCategory[] = STARTER_CATEGORIES.map(
-      ([name, color, defaultPaymentMethod], index) => ({
+      ([name, color, defaultPaymentMethod, icon], index) => ({
         id: this.ids.generate(),
         planId,
         name,
         monthlyBudget: cents(0),
         defaultPaymentMethod,
         color,
+        icon,
         active: true,
         sortOrder: index,
       })

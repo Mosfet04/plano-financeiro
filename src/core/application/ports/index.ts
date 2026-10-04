@@ -1,5 +1,6 @@
 import type { BudgetCategory } from "@/core/domain/budget/budget-category.entity";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
+import type { Device, DevicePairing } from "@/core/domain/device/device.entity";
 import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type { FgtsSettings } from "@/core/domain/fgts/fgts.entity";
 import type { RecurringItem } from "@/core/domain/expense/recurring-item.entity";
@@ -128,6 +129,7 @@ export interface InvestmentRepository {
 export interface TransactionRepository {
   listByMonth(planId: string, month: YearMonth): Promise<Transaction[]>;
   findById(id: string): Promise<Transaction | null>;
+  findByClientRequestId(planId: string, key: string): Promise<Transaction | null>;
   save(transaction: Transaction): Promise<void>;
   delete(id: string): Promise<void>;
 }
@@ -157,4 +159,29 @@ export interface MarketRatesProvider {
     referenceRateMonthly: number | null;
     raw: unknown;
   }>;
+}
+
+export interface DeviceRepository {
+  findByTokenHash(tokenHash: string): Promise<Device | null>;
+  findById(id: string): Promise<Device | null>;
+  listByPlan(planId: string): Promise<Device[]>;
+  save(device: Device): Promise<void>;
+}
+
+export interface DevicePairingRepository {
+  findByUserCode(userCode: string): Promise<DevicePairing | null>;
+  findByDeviceCodeHash(deviceCodeHash: string): Promise<DevicePairing | null>;
+  save(pairing: DevicePairing): Promise<void>;
+  delete(id: string): Promise<void>;
+  /** Limpa pedidos vencidos — não precisa de cron, roda a cada pedido novo. */
+  deleteExpired(now: Date): Promise<void>;
+}
+
+/** Segredos aleatórios e o hash com que eles são guardados. */
+export interface SecretGenerator {
+  /** 32 bytes aleatórios em base64url. */
+  token(): string;
+  /** Código curto do alfabeto de `USER_CODE_ALPHABET`. */
+  userCode(): string;
+  hash(value: string): string;
 }

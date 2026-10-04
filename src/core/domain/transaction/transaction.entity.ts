@@ -26,5 +26,7 @@ export interface Transaction {
   readonly goalId: string | null;
   readonly paymentMethod: PaymentMethod;
   readonly amount: Cents;
+  /** Chave de idempotência de quem lançou pelo relógio. Nula para o PWA. */
+  readonly clientRequestId: string | null;
   readonly createdAt: Date;
 }

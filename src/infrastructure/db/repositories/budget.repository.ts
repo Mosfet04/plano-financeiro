@@ -86,6 +86,7 @@ export class DrizzleBudgetCategoryRepository implements BudgetCategoryRepository
       monthlyBudgetCents: category.monthlyBudget,
       defaultPaymentMethod: category.defaultPaymentMethod,
       color: category.color,
+      icon: category.icon,
       active: category.active,
       sortOrder: category.sortOrder,
     };
@@ -164,6 +165,13 @@ export class DrizzleTransactionRepository implements TransactionRepository {
     return row ? toTransaction(row) : null;
   }
 
+  async findByClientRequestId(planId: string, key: string): Promise<Transaction | null> {
+    const row = await this.db.query.transactions.findFirst({
+      where: and(eq(transactions.planId, planId), eq(transactions.clientRequestId, key)),
+    });
+    return row ? toTransaction(row) : null;
+  }
+
   async save(transaction: Transaction): Promise<void> {
     const values = {
       id: transaction.id,
@@ -175,6 +183,7 @@ export class DrizzleTransactionRepository implements TransactionRepository {
       goalId: transaction.goalId,
       paymentMethod: transaction.paymentMethod,
       amountCents: transaction.amount,
+      clientRequestId: transaction.clientRequestId,
     };
 
     await this.db

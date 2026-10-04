@@ -31,9 +31,10 @@ export interface ViradaData {
   isRedo: boolean;
   note: string;
   summary: {
-    salary: number;
+    income: number;
+    housing: number;
+    otherFixed: number;
     extraIncome: number;
-    fixedTotal: number;
     variableSpent: number;
     goalSpent: number;
     mealCardOverflow: number;
@@ -235,15 +236,16 @@ function ReviewStep({ data, onNext }: { data: ViradaData; onNext: () => void }) 
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-1.5 text-sm">
-          <Line label="Salário" value={summary.salary} />
+          <Line label="Renda do mês" value={summary.income} />
           {summary.extraIncome > 0 ? (
             <Line label="Renda extra" value={summary.extraIncome} />
           ) : null}
-          <Line label="Contas fixas" value={-summary.fixedTotal} />
+          <Line label="Moradia e parcela" value={-summary.housing} />
+          <Line label="Contas fixas" value={-summary.otherFixed} />
           <Line label="Gastos variáveis" value={-summary.variableSpent} />
           {summary.goalSpent > 0 ? <Line label="Metas" value={-summary.goalSpent} /> : null}
           {summary.mealCardOverflow > 0 ? (
-            <Line label="Estourou o vale-refeição" value={-summary.mealCardOverflow} />
+            <Line label="Estourou o VA" value={-summary.mealCardOverflow} />
           ) : null}
           <div className="border-stroke-subtle mt-1 flex flex-col gap-1.5 border-t pt-2">
             <Line label="Sobrou" value={summary.leftover} strong />

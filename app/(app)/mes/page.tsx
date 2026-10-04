@@ -83,7 +83,9 @@ export default async function MesPage({
     mealCardCredited: closing.mealCardCredited,
     mealCardSpent: closing.mealCardSpent,
     mealCardRemaining: closing.mealCardRemaining,
-    salary: closing.salary,
+    income: closing.income,
+    housing: closing.housing,
+    otherFixed: closing.otherFixed,
     extraIncome: closing.extraIncome,
     variableSpent: closing.variableSpent,
     goalSpent: closing.goalSpent,
@@ -92,9 +94,7 @@ export default async function MesPage({
     planTarget: closing.planTarget,
     onPlan: closing.onPlan,
     slack: closing.slack,
-    daysRemaining: closing.daysRemaining,
-    freePerDay: closing.freePerDay,
-    leisurePerDay: closing.leisurePerDay,
+    allowance: closing.allowance,
     transactions: closing.transactions.map((transaction) => ({
       id: transaction.id,
       date: transaction.date,
@@ -104,6 +104,7 @@ export default async function MesPage({
         ? (categoryNames.get(transaction.categoryId) ?? null)
         : null,
       paymentMethod: transaction.paymentMethod,
+      fromWatch: transaction.clientRequestId !== null,
       amount: transaction.amount,
     })),
   };

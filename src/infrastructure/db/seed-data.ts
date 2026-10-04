@@ -1,4 +1,8 @@
-import { PaymentMethod, type BudgetCategory } from "@/core/domain/budget/budget-category.entity";
+import {
+  PaymentMethod,
+  type BudgetCategory,
+  type CategoryIcon,
+} from "@/core/domain/budget/budget-category.entity";
 import {
   ItemDirection,
   ItemGroup,
@@ -174,26 +178,29 @@ export function buildSpreadsheetPlan(options: SeedOptions): SeededPlan {
     }),
   ];
 
-  const categoryDefinitions: ReadonlyArray<readonly [string, number, string]> = [
-    ["Transporte", 250, "chart-1"],
-    ["Farmácia e saúde", 120, "chart-2"],
-    ["Casa e manutenção", 180, "chart-3"],
-    ["Pet (Cookie)", 150, "chart-4"],
-    ["Namorada", 400, "chart-5"],
-    ["Lazer e rolês", 200, "chart-6"],
-    ["Compras e assinaturas", 150, "chart-7"],
+  const categoryDefinitions: ReadonlyArray<readonly [string, number, string, CategoryIcon]> = [
+    ["Transporte", 250, "chart-1", "car"],
+    ["Farmácia e saúde", 120, "chart-2", "pill"],
+    ["Casa e manutenção", 180, "chart-3", "wrench"],
+    ["Pet (Cookie)", 150, "chart-4", "paw-print"],
+    ["Namorada", 400, "chart-5", "heart"],
+    ["Lazer e rolês", 200, "chart-6", "star"],
+    ["Compras e assinaturas", 150, "chart-7", "shopping-bag"],
   ];
 
-  const categories: BudgetCategory[] = categoryDefinitions.map(([name, budget, color], index) => ({
-    id: nextId(),
-    planId,
-    name,
-    monthlyBudget: reais(budget),
-    defaultPaymentMethod: PaymentMethod.CASH,
-    color,
-    active: true,
-    sortOrder: index,
-  }));
+  const categories: BudgetCategory[] = categoryDefinitions.map(
+    ([name, budget, color, icon], index) => ({
+      id: nextId(),
+      planId,
+      name,
+      monthlyBudget: reais(budget),
+      defaultPaymentMethod: PaymentMethod.CASH,
+      color,
+      icon,
+      active: true,
+      sortOrder: index,
+    })
+  );
 
   const goals: Goal[] = [
     {

@@ -23,6 +23,7 @@ export const SETTINGS_ITEM: NavItem = {
 
 export function titleForPath(pathname: string): string {
   if (pathname.startsWith("/aparencia")) return "Aparência";
+  if (pathname.startsWith("/dispositivos")) return "Dispositivos";
   if (pathname.startsWith("/mes/virada")) return "Virada do mês";
   const match = [...NAV_ITEMS, SETTINGS_ITEM].find((item) => pathname.startsWith(item.href));
   return match?.label ?? "Plano financeiro";

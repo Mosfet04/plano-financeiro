@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui/react/menu";
-import { LogOut, MoreVertical, Moon, Palette, Settings2, Sun } from "lucide-react";
+import { LogOut, MoreVertical, Moon, Palette, Settings2, Sun, Watch } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -53,6 +53,10 @@ export function TopBar({ userName, onSignOut }: { userName: string; onSignOut: (
               <Menu.Item className={menuItemClass} render={<Link href="/aparencia" />}>
                 <Palette className="size-4" />
                 Aparência
+              </Menu.Item>
+              <Menu.Item className={menuItemClass} render={<Link href="/dispositivos" />}>
+                <Watch className="size-4" />
+                Dispositivos
               </Menu.Item>
               <Menu.Separator className="bg-stroke-subtle my-1 h-px" />
               <Menu.Item className={menuItemClass} onClick={onSignOut}>

@@ -55,7 +55,7 @@ export function NewTransactionSheet({
   const [pending, startTransition] = React.useTransition();
 
   // Ao trocar de categoria, o meio de pagamento segue o padrão dela: comida já
-  // vem marcada como vale-refeição. Feito no próprio handler, não num efeito —
+  // vem marcada como VA. Feito no próprio handler, não num efeito —
   // assim uma escolha manual de "Dinheiro" depois disso não é desfeita.
   function selectCategory(id: string) {
     setCategoryId(id);
@@ -179,8 +179,8 @@ export function NewTransactionSheet({
               <div className="rounded-control bg-surface-hover grid grid-cols-2 gap-1 p-1">
                 {(
                   [
-                    ["MEAL_CARD", "Vale-refeição"],
                     ["CASH", "Dinheiro"],
+                    ["MEAL_CARD", "VA"],
                   ] as const
                 ).map(([value, label]) => (
                   <button

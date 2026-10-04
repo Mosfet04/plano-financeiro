@@ -689,6 +689,15 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
  * início do plano, que não tem meta.
  */
 export function expectedLeftover(input: ProjectionInput, month: YearMonth): Cents | null {
+  return expectedMonthRow(input, month)?.leftover ?? null;
+}
+
+/**
+ * A linha inteira que o plano espera de um mês — renda, moradia com a parcela,
+ * contas fixas, metas. Mesma regra de `expectedLeftover`: é dela que o
+ * realizado do mês tira o lado que não depende de lançamento.
+ */
+export function expectedMonthRow(input: ProjectionInput, month: YearMonth): MonthProjection | null {
   if (isBefore(month, input.startMonth)) return null;
 
   const projection = projectPlan({
@@ -697,5 +706,5 @@ export function expectedLeftover(input: ProjectionInput, month: YearMonth): Cent
     closings: input.closings.filter((closing) => isBefore(closing.month, month)),
     horizonMonths: Math.max(input.horizonMonths, monthsBetween(input.startMonth, month) + 1),
   });
-  return projection.months.find((row) => row.month === month)?.leftover ?? null;
+  return projection.months.find((row) => row.month === month) ?? null;
 }

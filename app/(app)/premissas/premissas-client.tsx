@@ -23,11 +23,16 @@ import {
   saveYieldPolicy,
 } from "@/app/actions/assumptions.actions";
 import { Badge } from "@/components/ui/badge";
+import { CategoryIcon } from "@/components/ui/category-icon";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { IntegerInput, MoneyInput, PercentInput } from "@/components/ui/number-inputs";
 import { Sheet } from "@/components/ui/sheet";
+import {
+  CATEGORY_ICONS,
+  type CategoryIcon as CategoryIconName,
+} from "@/core/domain/budget/budget-category.entity";
 import { formatBRL, toReais, type Cents } from "@/core/domain/shared/money";
 import {
   addMonths,
@@ -37,6 +42,7 @@ import {
   monthOfISODate,
   type YearMonth,
 } from "@/core/domain/shared/month";
+import { cn } from "@/lib/utils";
 
 export interface PremissasData {
   income: {
@@ -70,6 +76,7 @@ export interface PremissasData {
     monthlyBudget: number;
     defaultPaymentMethod: "MEAL_CARD" | "CASH";
     color: string;
+    icon: CategoryIconName;
     active: boolean;
     sortOrder: number;
   }>;
@@ -304,7 +311,7 @@ function RendaSection({ income }: { income: PremissasData["income"] }) {
                 onChange={(raiseMonth) => setForm({ ...form, raiseMonth })}
               />
             </Field>
-            <Field label="Vale-refeição mensal" hint="Não é dinheiro livre: só paga comida.">
+            <Field label="VA mensal" hint="Vale-alimentação. Não é dinheiro livre: só paga comida.">
               <MoneyInput
                 value={form.mealCardMonthly}
                 onChange={(mealCardMonthly) => setForm({ ...form, mealCardMonthly })}
@@ -617,6 +624,7 @@ const emptyCategory: CategoryRow = {
   monthlyBudget: 0,
   defaultPaymentMethod: "CASH",
   color: "chart-1",
+  icon: "tag",
   active: true,
   sortOrder: 99,
 };
@@ -649,16 +657,13 @@ function CategoriesSection({ categories }: { categories: PremissasData["categori
             key={category.id}
             className="rounded-control hover:bg-surface-hover flex items-center gap-3 px-2 py-2"
           >
-            <span
-              className="size-3 shrink-0 rounded-full"
-              style={{ background: `var(--${category.color})` }}
-            />
+            <span style={{ color: `var(--${category.color})` }}>
+              <CategoryIcon name={category.icon} className="size-4 shrink-0" />
+            </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-sm font-semibold">{category.name}</span>
               <span className="text-fg-muted text-xs">
-                {category.defaultPaymentMethod === "MEAL_CARD"
-                  ? "Padrão: vale-refeição"
-                  : "Padrão: dinheiro"}
+                {category.defaultPaymentMethod === "MEAL_CARD" ? "Padrão: VA" : "Padrão: dinheiro"}
                 {!category.active ? " · inativa" : ""}
               </span>
             </div>
@@ -706,6 +711,7 @@ function CategoriesSection({ categories }: { categories: PremissasData["categori
                 monthlyBudget: form.monthlyBudget,
                 defaultPaymentMethod: form.defaultPaymentMethod,
                 color: form.color,
+                icon: form.icon,
                 active: form.active,
                 sortOrder: form.sortOrder,
               });
@@ -793,7 +799,7 @@ function CategorySheet({
             }
           >
             <option value="CASH">Dinheiro</option>
-            <option value="MEAL_CARD">Vale-refeição</option>
+            <option value="MEAL_CARD">VA</option>
           </Select>
         </Field>
         <Field label="Cor">
@@ -807,6 +813,27 @@ function CategorySheet({
               </option>
             ))}
           </Select>
+        </Field>
+        <Field label="Ícone" hint="É o que aparece no relógio.">
+          <div className="grid grid-cols-8 gap-1">
+            {CATEGORY_ICONS.map((icon) => (
+              <button
+                key={icon}
+                type="button"
+                aria-label={icon}
+                aria-pressed={form.icon === icon}
+                onClick={() => setForm({ ...form, icon })}
+                className={cn(
+                  "rounded-control grid size-9 place-items-center",
+                  form.icon === icon
+                    ? "bg-brand-tint text-[var(--brand-pressed)]"
+                    : "text-fg-muted hover:bg-surface-hover"
+                )}
+              >
+                <CategoryIcon name={icon} className="size-4" />
+              </button>
+            ))}
+          </div>
         </Field>
         <label className="flex items-center gap-2 text-sm">
           <input

@@ -4,10 +4,16 @@ import { formatInTimeZone } from "date-fns-tz";
 import type { Clock, IdGenerator } from "@/core/application/ports";
 import { CloseMonthUseCase } from "@/core/application/use-cases/close-month.use-case";
 import { CreatePlanUseCase } from "@/core/application/use-cases/create-plan.use-case";
+import { DevicePairingUseCase } from "@/core/application/use-cases/device-pairing.use-case";
 import { GetProjectionUseCase } from "@/core/application/use-cases/get-projection.use-case";
 import { SettleMonthUseCase } from "@/core/application/use-cases/settle-month.use-case";
 import { RefreshMarketRatesUseCase } from "@/core/application/use-cases/refresh-market-rates.use-case";
+import {
+  GetWatchSnapshotUseCase,
+  RecordWatchTransactionUseCase,
+} from "@/core/application/use-cases/watch.use-case";
 import { TZ } from "@/infra/config/time";
+import { nodeSecretGenerator } from "@/infra/crypto/node-secret-generator";
 import { getDb } from "@/infra/db/client";
 import {
   DrizzleBudgetCategoryRepository,
@@ -15,6 +21,10 @@ import {
   DrizzleRecurringItemRepository,
   DrizzleTransactionRepository,
 } from "@/infra/db/repositories/budget.repository";
+import {
+  DrizzleDevicePairingRepository,
+  DrizzleDeviceRepository,
+} from "@/infra/db/repositories/device.repository";
 import {
   DrizzleCashAccountRepository,
   DrizzleFgtsRepository,
@@ -55,9 +65,12 @@ export function buildContainer() {
   const closings = new DrizzleMonthClosingRepository(db);
   const fgts = new DrizzleFgtsRepository(db);
   const marketRates = new DrizzleMarketRatesRepository(db);
+  const devices = new DrizzleDeviceRepository(db);
+  const devicePairings = new DrizzleDevicePairingRepository(db);
   const ratesProvider = new BcbSgsProvider();
 
   const closeMonth = new CloseMonthUseCase(plans, transactions, systemClock);
+  const getProjection = new GetProjectionUseCase(plans, systemClock);
 
   return {
     db,
@@ -75,9 +88,10 @@ export function buildContainer() {
       closings,
       fgts,
       marketRates,
+      devices,
     },
     useCases: {
-      getProjection: new GetProjectionUseCase(plans, systemClock),
+      getProjection,
       createPlan: new CreatePlanUseCase(plans, uuidGenerator, systemClock),
       closeMonth,
       settleMonth: new SettleMonthUseCase(plans, closeMonth, closings, uuidGenerator, systemClock),
@@ -85,6 +99,20 @@ export function buildContainer() {
         marketRates,
         ratesProvider,
         plans,
+        uuidGenerator,
+        systemClock
+      ),
+      devicePairing: new DevicePairingUseCase(
+        devicePairings,
+        devices,
+        nodeSecretGenerator,
+        uuidGenerator,
+        systemClock
+      ),
+      watchSnapshot: new GetWatchSnapshotUseCase(closeMonth, getProjection, systemClock),
+      recordWatchTransaction: new RecordWatchTransactionUseCase(
+        categories,
+        transactions,
         uuidGenerator,
         systemClock
       ),

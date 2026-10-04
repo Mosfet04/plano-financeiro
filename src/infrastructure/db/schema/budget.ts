@@ -1,4 +1,12 @@
-import { boolean, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 import { plans } from "./plan";
 
@@ -44,6 +52,8 @@ export const budgetCategories = pgTable(
       .notNull()
       .default("CASH"),
     color: text("color").notNull().default("chart-1"),
+    /** Nome de ícone do Lucide, de `CATEGORY_ICONS`. */
+    icon: text("icon").notNull().default("tag"),
     active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
   },
@@ -94,7 +104,12 @@ export const transactions = pgTable(
       .notNull()
       .default("CASH"),
     amountCents: integer("amount_cents").notNull(),
+    /** Chave gerada no relógio: ele reenvia ao reconectar, e a chave faz o reenvio virar o mesmo lançamento. */
+    clientRequestId: text("client_request_id"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("idx_transactions_plan_date").on(t.planId, t.date)]
+  (t) => [
+    index("idx_transactions_plan_date").on(t.planId, t.date),
+    uniqueIndex("uq_transaction_client_request").on(t.planId, t.clientRequestId),
+  ]
 );

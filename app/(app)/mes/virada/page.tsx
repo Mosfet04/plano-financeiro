@@ -56,9 +56,10 @@ export default async function ViradaPage({
     isRedo: review.existing !== null,
     note: review.existing?.note ?? "",
     summary: {
-      salary: review.summary.salary,
+      income: review.summary.income,
+      housing: review.summary.housing,
+      otherFixed: review.summary.otherFixed,
       extraIncome: review.summary.extraIncome,
-      fixedTotal: review.summary.fixedTotal,
       variableSpent: review.summary.variableSpent,
       goalSpent: review.summary.goalSpent,
       mealCardOverflow: review.summary.mealCardOverflow,

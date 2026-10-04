@@ -10,7 +10,7 @@ import { Indexer } from "@/core/domain/investment/investment.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
 import { projectPlan } from "@/core/domain/projection/project-plan";
 import { reais } from "@/core/domain/shared/money";
-import { monthOf } from "@/core/domain/shared/month";
+import { monthOf, type YearMonth } from "@/core/domain/shared/month";
 import type { Transaction } from "@/core/domain/transaction/transaction.entity";
 import { buildSpreadsheetPlan } from "@/infra/db/seed-data";
 import { ratesSnapshot } from "../../fixtures/plano-da-planilha";
@@ -47,7 +47,7 @@ function snapshotFrom(seeded: ReturnType<typeof seed>): PlanSnapshot {
   };
 }
 
-function build(transactions: Transaction[], seeded = seed()) {
+function build(transactions: Transaction[], seeded = seed(), today = "2026-08-27") {
   const plans = {
     loadSnapshot: vi.fn().mockResolvedValue(snapshotFrom(seeded)),
   } as unknown as PlanRepository;
@@ -56,8 +56,8 @@ function build(transactions: Transaction[], seeded = seed()) {
     listByMonth: vi.fn().mockResolvedValue(transactions),
   } as unknown as TransactionRepository;
 
-  // Dia 27 de agosto: faltam 5 dias no mês (27 a 31).
-  const clock: Clock = { now: () => new Date("2026-08-27T12:00:00Z"), today: () => "2026-08-27" };
+  // Por padrão, dia 27 de agosto: faltam 5 dias no mês (27 a 31).
+  const clock: Clock = { now: () => new Date(`${today}T12:00:00Z`), today: () => today };
 
   return { useCase: new CloseMonthUseCase(plans, repo, clock), seeded };
 }
@@ -73,6 +73,7 @@ function expense(partial: Omit<Partial<Transaction>, "amount"> & { amount: numbe
     categoryId: null,
     goalId: null,
     paymentMethod: "CASH",
+    clientRequestId: null,
     createdAt: new Date("2026-08-10T12:00:00Z"),
     ...partial,
     amount: reais(partial.amount),
@@ -92,7 +93,7 @@ describe("CloseMonthUseCase", () => {
     expect(closing.fixedTotal).toBe(reais(1841.83));
     expect(closing.leftover).toBe(reais(6354.88 - 1841.83));
     expect(closing.mealCardRemaining).toBe(seeded.income.mealCardMonthly);
-    expect(closing.daysRemaining).toBe(5);
+    expect(closing.allowance.cash.daysLeft).toBe(5);
   });
 
   it("só gasto em dinheiro consome o orçamento da categoria", async () => {
@@ -157,7 +158,7 @@ describe("CloseMonthUseCase", () => {
     expect(result.value.variableSpent).toBe(reais(0));
   });
 
-  it("compara com a meta do plano e divide a folga pelos dias que faltam", async () => {
+  it("compara com a meta do plano e divide o Dinheiro do mês pelos dias que faltam", async () => {
     const { useCase } = build([]);
 
     const result = await useCase.execute({ planId: "plan-1", month: AGOSTO });
@@ -169,8 +170,39 @@ describe("CloseMonthUseCase", () => {
     expect(closing.planTarget).toBeGreaterThan(reais(3063.05));
     expect(closing.slack).toBe(closing.leftover - closing.planTarget);
     expect(closing.onPlan).toBe(closing.leftover >= closing.planTarget);
-    expect(closing.freePerDay).toBe(Math.round(Math.max(0, closing.slack) / closing.daysRemaining));
+    // Sem lançamento, o Dinheiro do mês é a folga: categorias − reforço.
+    expect(closing.allowance.cash.monthRemaining).toBe(closing.slack);
+    expect(closing.allowance.cash.dayBudget).toBe(Math.floor(closing.slack / 5));
   });
+
+  /**
+   * A regressão do "Livre por dia": o realizado contava só o salário e a meta
+   * contava o 13º, então novembro abria R$ 2 mil abaixo do plano sem nenhum
+   * gasto. Agora renda, moradia e parcela vêm da mesma linha da meta.
+   */
+  it.each(["2026-11", "2026-12", "2027-03"])(
+    "%s sem lançamento: o Dinheiro do mês é categorias − reforço",
+    async (month) => {
+      const seeded = seed();
+      const { useCase } = build([], seeded, `${month}-01`);
+
+      const result = await useCase.execute({ planId: "plan-1", month: month as YearMonth });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const variable = seeded.categories.reduce((sum, c) => sum + c.monthlyBudget, 0);
+      const { monthlyTopUpToFixHole } = projectPlan(
+        buildProjectionInput(snapshotFrom(seeded), `${month}-01`, DEFAULT_HORIZON_MONTHS)
+      );
+      // A folga ainda conta a meta prevista e não lançada (o ITBI de dezembro);
+      // o Dinheiro já a tirou como "gasto que vai entrar".
+      const goalsDue = seeded.goals
+        .filter((goal) => goal.targetMonth === month)
+        .reduce((sum, goal) => sum + goal.amount, 0);
+      expect(result.value.slack).toBe(variable + goalsDue - monthlyTopUpToFixHole);
+      expect(result.value.allowance.cash.monthRemaining).toBe(variable - monthlyTopUpToFixHole);
+    }
+  );
 
   /**
    * A regressão da virada: conferidos os saldos em 01/11, a projeção começa em

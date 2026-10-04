@@ -1,5 +1,10 @@
-import type { BudgetCategory, PaymentMethod } from "@/core/domain/budget/budget-category.entity";
+import type {
+  BudgetCategory,
+  CategoryIcon,
+  PaymentMethod,
+} from "@/core/domain/budget/budget-category.entity";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
+import type { Device, DevicePairing, PairingStatus } from "@/core/domain/device/device.entity";
 import type { FgtsSettings } from "@/core/domain/fgts/fgts.entity";
 import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type {
@@ -30,6 +35,8 @@ import type { Transaction, TransactionKind } from "@/core/domain/transaction/tra
 import type {
   budgetCategories,
   cashAccounts,
+  devicePairings,
+  devices,
   extraAmortizations,
   fgtsSettings,
   financings,
@@ -154,6 +161,7 @@ export function toBudgetCategory(row: typeof budgetCategories.$inferSelect): Bud
     monthlyBudget: money(row.monthlyBudgetCents),
     defaultPaymentMethod: row.defaultPaymentMethod as PaymentMethod,
     color: row.color,
+    icon: row.icon as CategoryIcon,
     active: row.active,
     sortOrder: row.sortOrder,
   };
@@ -250,6 +258,34 @@ export function toTransaction(row: typeof transactions.$inferSelect): Transactio
     goalId: row.goalId,
     paymentMethod: row.paymentMethod as PaymentMethod,
     amount: money(row.amountCents),
+    clientRequestId: row.clientRequestId,
     createdAt: row.createdAt,
+  };
+}
+
+export function toDevice(row: typeof devices.$inferSelect): Device {
+  return {
+    id: row.id,
+    planId: row.planId,
+    name: row.name,
+    tokenHash: row.tokenHash,
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt,
+    expiresAt: row.expiresAt,
+    revokedAt: row.revokedAt,
+  };
+}
+
+export function toDevicePairing(row: typeof devicePairings.$inferSelect): DevicePairing {
+  return {
+    id: row.id,
+    deviceCodeHash: row.deviceCodeHash,
+    userCode: row.userCode,
+    deviceName: row.deviceName,
+    status: row.status as PairingStatus,
+    planId: row.planId,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+    lastPolledAt: row.lastPolledAt,
   };
 }
