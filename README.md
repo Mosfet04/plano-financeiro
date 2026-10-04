@@ -38,8 +38,9 @@ Aliases: `@/core/*`, `@/infra/*`, `@/composition/*`, `@/*`.
 - **Nomes, tipos e arquivos em inglês**; rotas, UI e comentários de regra de negócio em português.
 - **`getEnv()` é a única leitura de `process.env`.** Nenhum módulo lê variável de ambiente direto.
 - **CRUD simples fala direto com `container.repos`**; só o que tem regra vira caso de uso. Hoje são
-  cinco: `getProjection`, `createPlan`, `closeMonth`, `settleMonth` (a virada do mês) e
-  `refreshMarketRates`.
+  oito: `getProjection`, `createPlan`, `closeMonth`, `settleMonth` (a virada do mês),
+  `refreshMarketRates`, e os três do relógio — `devicePairing`, `watchSnapshot` e
+  `recordWatchTransaction`.
 - **Toda action confere o dono** antes de gravar ou apagar: id vindo do cliente não é confiável.
 
 ## Como o motor funciona
@@ -248,6 +249,93 @@ aplicações resgatadas, deveria ser a sobra do mês. Quando não é, ou faltou 
 dinheiro ficou na conta corrente, que o plano não enxerga. No terceiro, mostra quitação e menor
 caixa antes e depois.
 
+## Quanto dá para gastar hoje
+
+É o número que o `/mes` e o relógio mostram, por fonte — **Dinheiro** e **VA** (vale-alimentação,
+`payment_method = MEAL_CARD`). Uma função pura só, `dailyAllowance`, para os dois:
+
+```
+valor do dia = (orçamento do mês − gasto até ontem) ÷ dias que faltam, contando hoje
+pode gastar hoje = valor do dia − gasto de hoje
+```
+
+O gasto de hoje sai inteiro do dia, não é rateado — gastar mais hoje não pode parecer de graça até
+amanhã. Mês estourado divide o buraco pelos dias que faltam, e o valor do dia fica negativo de
+propósito. Arredonda para baixo, também no negativo.
+
+**VA:** o orçamento é o crédito mensal (Premissas → VA mensal). O que passa do crédito sai do bolso:
+entra no Dinheiro no dia em que estourou, e o VA para em zero. O VA continua fora da projeção.
+
+**Dinheiro:** entradas do mês − moradia, parcela e contas fixas − metas previstas − **a sobra que o
+plano manda guardar e o reforço**. Tudo isso vem da mesma linha da projeção que dá a meta do mês,
+então se reduz a _soma das categorias − reforço + renda extra_: 13º, PLR, parcela e ITBI estão nos
+dois lados e se anulam. Lançamento de meta só conta no que passa da meta prevista no mês — o
+previsto já saiu como "gasto que vai entrar".
+
+Isso corrigiu o realizado do `/mes`: ele contava só o salário líquido e as contas fixas, enquanto a
+meta vinha da projeção com 13º, PLR, férias, auxílio e parcela. No plano da planilha, sem nenhum
+lançamento, o "livre por dia" dava R$ 0 em nov/2026 e mar/2027 e R$ 532 em dez/2026. Agora o lado do
+mês que não depende de lançamento vem de `expectedMonthRow`, a mesma linha de `expectedLeftover`.
+
+## Relógio (Galaxy Watch 8)
+
+App Wear OS nativo em `watch/` — Kotlin, Compose for Wear OS Material 3, tile em ProtoLayout e uma
+complicação com o Dinheiro de hoje. Standalone: fala direto com o servidor, sem o celular.
+
+```
+watch/app/src/main/java/br/dev/mateus/planofinanceiro/
+  domain/     Cents (Long em centavos), porte de dailyAllowance e do estouro do VA, buildView
+  data/       WatchApi (OkHttp), LocalStore (DataStore), TokenCipher (Keystore), PlanoRepository
+  sync/       WorkManager: de hora em hora, quando a rede volta, e logo depois da meia-noite
+  ui/         telas Compose; tile/ e complication/ leem o mesmo cache
+```
+
+**Abre do cache, nunca espera a rede.** O relógio guarda o último snapshot e uma fila de operações.
+Todo lançamento entra primeiro na fila e sobe depois, com uma chave de idempotência gerada no
+relógio: reenviar ao reconectar devolve o mesmo lançamento. `buildView` refaz a conta do dia em cima
+do snapshot e da fila — é o que deixa a meia-noite e a virada do mês certas sem rede. Os testes JVM
+repetem os casos do Vitest: o relógio e o servidor têm de bater no centavo.
+
+**API** (`app/api/watch/*`, fora da sessão no `proxy.ts` — cada rota confere o token):
+
+| Rota                                  | O que faz                                                |
+| ------------------------------------- | -------------------------------------------------------- |
+| `POST /api/watch/pairing`             | pública — começa o pareamento, devolve o código          |
+| `POST /api/watch/pairing/token`       | pública — troca o código pelo token depois da aprovação  |
+| `GET /api/watch/snapshot`             | tudo o que o relógio mostra, numa chamada                |
+| `POST /api/watch/transactions`        | lança (idempotente) e devolve o snapshot atualizado      |
+| `DELETE /api/watch/transactions/[id]` | o "Desfazer" — só para lançamento que veio de um relógio |
+
+**Pareamento** no modelo do login de TV (RFC 8628): o relógio mostra um código de 8 caracteres,
+"Abrir no celular" abre `/dispositivos?codigo=…` no Android pareado, você confirma logado, e o
+relógio troca o segredo dele pelo token. O plano vem de quem aprovou, nunca do relógio. O token tem
+256 bits e o banco guarda só o SHA-256; expira depois de 90 dias sem uso e se revoga em
+`/dispositivos`.
+
+**Gerar e instalar.** A URL do servidor fica em `watch/local.properties` (fora do git):
+
+```properties
+sdk.dir=/home/<você>/Android/Sdk
+plano.baseUrl=https://<dominio>.vercel.app
+# Só o debug: o `npm run dev` do PC pela rede local (HTTP liberado só nessa variante).
+plano.debugBaseUrl=http://<ip-do-pc>:3000
+```
+
+```bash
+cd watch
+JAVA_HOME=/opt/android-studio/jbr ./gradlew :app:testDebugUnitTest :app:lintDebug
+JAVA_HOME=/opt/android-studio/jbr ./gradlew :app:assembleRelease   # app/build/outputs/apk/release/
+```
+
+No relógio: Configurações → Sobre o relógio → Software → toque 5× em "Versão do software"; em
+Opções do desenvolvedor, ligue "Depuração ADB" e "Depuração por Wi-Fi". Depois
+`adb pair IP:PORTA_DE_PAREAMENTO`, `adb connect IP:PORTA` e
+`adb install app/build/outputs/apk/release/app-release.apk`. A release é assinada com a chave de
+debug — serve para instalar por ADB, não para a Play Store.
+
+Em dev, confirme o código no navegador do PC (`localhost:3000/dispositivos`): o login Google não
+aceita voltar para o IP da rede local, então o "Abrir no celular" só funciona em produção.
+
 ## Rotina semanal de taxas
 
 `GET /api/cron/market-rates` com `Authorization: Bearer $CRON_SECRET`.
@@ -328,12 +416,14 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/mark
 | `npm run test`                                   | testes (motor de projeção, IR da PLR, fechamento do mês, provider do BCB) |
 | `npm run typecheck` / `npm run lint`             | verificação estática                                                      |
 | `npm run db:generate` / `db:migrate` / `db:seed` | migrações e carga inicial                                                 |
+| `cd watch && ./gradlew :app:assembleRelease`     | APK do relógio (veja [Relógio](#relógio-galaxy-watch-8))                  |
 
 ## Telas
 
 `/resumo` (capa e alertas) · `/mes/virada` (a virada do mês) · `/mes` (lançamentos, orçamento,
 navegação entre meses, fechamento do mês e a série "previu ×
-fiz") · `/metas` · `/projecao` (gráfico e tabela) · `/premissas` (tudo editável) · `/aparencia`.
+fiz") · `/metas` · `/projecao` (gráfico e tabela) · `/premissas` (tudo editável) · `/aparencia` ·
+`/dispositivos` (parear e revogar relógios).
 
 No celular: barra inferior com quatro destinos e o botão central de novo lançamento, que abre uma
 folha de baixo. No desktop: rail vertical de ícones à esquerda. Design em Fluent 2, a linguagem
