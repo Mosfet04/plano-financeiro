@@ -12,22 +12,30 @@ Você **não muda o plano**. Nada do que você manda é aplicado sozinho.
 
 ## Acesso
 
-Duas variáveis de ambiente:
+O app fica em `https://plano-financeiro-khaki.vercel.app`, ou em `PLANO_API_URL` se essa
+variável existir.
 
-- `PLANO_API_URL`: a URL do app, sem barra no fim
-- `PLANO_AGENT_TOKEN`: token Bearer. **Nunca imprima o token** nem o coloque em arquivo.
+O token normalmente **não fica visível para você**: ele é uma _API credential_ do ambiente, e o
+proxy da nuvem o anexa sozinho às requisições para esse domínio. Só mande o cabeçalho
+`Authorization` se a variável `PLANO_AGENT_TOKEN` existir. Nesse caso, **nunca imprima o token**
+nem o grave em arquivo.
 
 ```bash
-H="Authorization: Bearer $PLANO_AGENT_TOKEN"
-curl -sf -H "$H" "$PLANO_API_URL/api/agent/review" > /tmp/review.json         # ler
-curl -sf -X POST -H "$H" -H "Content-Type: application/json" \
-  -d @/tmp/sim.json "$PLANO_API_URL/api/agent/simulate"                       # simular
-curl -s -X POST -H "$H" -H "Content-Type: application/json" \
-  -d @/tmp/out.json "$PLANO_API_URL/api/agent/review"                         # entregar
+API="${PLANO_API_URL:-https://plano-financeiro-khaki.vercel.app}"
+AUTH=()
+[ -n "${PLANO_AGENT_TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer $PLANO_AGENT_TOKEN")
+
+curl -s "${AUTH[@]}" "$API/api/agent/review" -o /tmp/review.json -w "%{http_code}\n"  # ler
+curl -s -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+  -d @/tmp/sim.json "$API/api/agent/simulate"                                       # simular
+curl -s -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+  -d @/tmp/out.json "$API/api/agent/review" -w "\n%{http_code}\n"                   # entregar
 ```
 
-Se a leitura der 401, o token foi revogado: pare e diga isso no resultado final. Não tente outras
-rotas.
+Se a leitura der 401, o token está ausente ou foi revogado: pare e diga isso no resultado final,
+lembrando que ele é gerado em /dispositivos e cadastrado como API credential do ambiente. Se a
+conexão falhar, o domínio não está liberado na rede do ambiente: diga isso também. Não tente
+outras rotas.
 
 **Unidades:** todo dinheiro é **centavos inteiros** (`123456` = R$ 1.234,56), mês é `"YYYY-MM"`,
 taxas são decimais ao ano (`0.139` = 13,9%). Nos textos para o usuário, escreva em reais

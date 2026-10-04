@@ -166,8 +166,8 @@ export function DispositivosClient({
           {issuedToken ? (
             <div className="border-brand bg-brand-tint rounded-control flex flex-col gap-2 border p-3">
               <span className="text-xs font-semibold">
-                Copie agora — ele não aparece de novo. Cole como PLANO_AGENT_TOKEN no ambiente da
-                rotina.
+                Copie agora — ele não aparece de novo. Cadastre como API credential do ambiente da
+                rotina, em claude.ai/code.
               </span>
               <div className="flex items-center gap-2">
                 <code className="tabular min-w-0 flex-1 text-xs break-all">{issuedToken}</code>

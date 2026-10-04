@@ -424,8 +424,13 @@ Gerar outro revoga o anterior.
 **Configurar a rotina** (uma vez):
 
 1. Conecte o GitHub à conta do Claude (`/web-setup` no Claude Code), para a rotina clonar o repo.
-2. No ambiente da rotina em claude.ai/code, defina `PLANO_API_URL` (a URL da Vercel, sem barra no
-   fim) e `PLANO_AGENT_TOKEN`, e libere acesso de rede ao domínio do app.
+2. No ambiente da rotina em claude.ai/code (ícone de nuvem acima da caixa de mensagem → passe o
+   mouse no ambiente → engrenagem), em **API credentials** → **Add credential**: tipo Bearer,
+   **Allowed websites** com o domínio do app e o token como **Value**. O proxy da nuvem anexa o
+   token às requisições para esse domínio, e o agente nunca o vê. Esse caminho também libera o
+   domínio na rede, sem mexer em **Network access**. Sem API credentials (planos Team ou
+   Enterprise), use as variáveis `PLANO_AGENT_TOKEN` e, se a URL mudar, `PLANO_API_URL`, e
+   adicione o domínio em **Network access** → **Custom**.
 3. Crie a rotina com `/schedule`: cron `0 12 2 * *` (dia 2, 9h em São Paulo), prompt
    "Leia `routines/monthly-review.md` e siga as instruções".
 
