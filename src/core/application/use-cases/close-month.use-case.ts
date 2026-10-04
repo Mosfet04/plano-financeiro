@@ -65,6 +65,8 @@ export interface CloseMonthOutput {
 
   /** Sobra que a projeção espera deste mês, mais o reforço se o plano estiver furado. */
   readonly planTarget: Cents;
+  /** A parte da meta que é reforço voluntário (`SavingsBoost`), já somada em `planTarget`. */
+  readonly savingsBoost: Cents;
   readonly onPlan: boolean;
   /** Sobra menos meta. Negativo = o mês fecha abaixo do previsto. */
   readonly slack: Cents;
@@ -210,6 +212,7 @@ export class CloseMonthUseCase {
       mealCardOverflow,
       leftover,
       planTarget,
+      savingsBoost: expected.savingsBoost,
       onPlan: leftover >= planTarget,
       slack,
       rawSpending,
@@ -235,7 +238,10 @@ export class CloseMonthUseCase {
 function fallbackRow(
   snapshot: { income: { netSalary: Cents }; categories: readonly BudgetCategory[] },
   fixedTotal: Cents
-): Pick<MonthProjection, "income" | "housing" | "otherFixed" | "goals" | "leftover"> {
+): Pick<
+  MonthProjection,
+  "income" | "housing" | "otherFixed" | "goals" | "savingsBoost" | "leftover"
+> {
   const variable = addCents(
     ...snapshot.categories.filter((c) => c.active).map((c) => c.monthlyBudget)
   );
@@ -244,6 +250,7 @@ function fallbackRow(
     housing: ZERO,
     otherFixed: fixedTotal,
     goals: ZERO,
+    savingsBoost: ZERO,
     leftover: cents(snapshot.income.netSalary - fixedTotal - variable),
   };
 }

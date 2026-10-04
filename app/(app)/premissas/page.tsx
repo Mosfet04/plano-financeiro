@@ -110,6 +110,13 @@ export default async function PremissasPage() {
       effectiveFrom: target.effectiveFrom,
       months: target.months,
     })),
+    savingsBoosts: snapshot.savingsBoosts.map((boost) => ({
+      id: boost.id,
+      startsOn: boost.startsOn,
+      endsOn: boost.endsOn,
+      amount: boost.amount,
+      note: boost.note,
+    })),
     referenceRateMonthly: snapshot.rates?.referenceRateMonthly ?? null,
   };
 

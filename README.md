@@ -249,6 +249,34 @@ aplicações resgatadas, deveria ser a sobra do mês. Quando não é, ou faltou 
 dinheiro ficou na conta corrente, que o plano não enxerga. No terceiro, mostra quitação e menor
 caixa antes e depois.
 
+## Reforço de meta
+
+A meta do mês é derivada: renda − moradia − contas − orçamento das categorias − metas com data.
+Sem outra alavanca, pedir mais esforço exigia cortar uma categoria específica. O reforço
+(`savings_boosts`) é o compromisso de gastar **X a menos do que o orçamento**, sem dizer onde.
+
+No motor ele é uma linha só: `leftover = … − variable − goals + savingsBoost`. O `variable`
+continua sendo o orçamento, então o custo de vida que dimensiona a reserva não muda. Todo o resto
+acompanha sem código próprio:
+
+- a **meta do fechamento** (`planTarget = expected.leftover + topUp`) sobe;
+- o **"quanto dá para gastar hoje"** (`cashBudget = … − planTarget`) desce na mesma medida, no app e
+  no relógio;
+- a **quitação** adianta, porque a sobra extra vai para o caixa de quitação.
+
+O reforço nunca passa do orçamento variável (`boostFor`). Ele é gravado pela regra "a partir de"
+(`setBoostFrom`): o valor novo substitui tudo dali para a frente, o que valia antes termina no mês
+anterior, e zero tira. Simulação, revisão e `/premissas` usam a mesma função.
+
+**Com caixa furado, o reforço é absorvido.** A meta já cobra o reforço automático que fecha o
+buraco (`monthlyTopUpToFixHole`). Guardar a mais fecha o buraco antes e diminui esse automático,
+então a meta quase não muda. É de propósito: o esforço extra só aparece como meta maior depois que
+o plano está de pé.
+
+A rotina mensal propõe subir quando os últimos fechamentos tiveram folga, e recuar quando o mês
+com reforço não bateu a meta. Também dá para definir à mão em `/premissas` → Reforço de meta, e o
+`/mes` mostra quanto da meta é reforço.
+
 ## Quanto dá para gastar hoje
 
 É o número que o `/mes` e o relógio mostram, por fonte — **Dinheiro** e **VA** (vale-alimentação,
@@ -398,7 +426,7 @@ lidas do repositório a cada execução, então dá para ajustar a estratégia c
 na rotina.
 
 **As alavancas são uma lista fechada** (`SuggestionKind`): orçamento de categoria, mês ou valor
-de meta, amortização do bolso num mês, e `NOTE` (conselho sem mudança, como conferir uma caixinha
+de meta, [reforço de meta](#reforço-de-meta), amortização do bolso num mês, e `NOTE` (conselho sem mudança, como conferir uma caixinha
 ou resgatar uma aplicação). Renda, financiamento e contas continuam só em `/premissas`.
 
 **O impacto é do servidor, não do agente.** Ao receber a revisão, `PlanReviewUseCase.submit`

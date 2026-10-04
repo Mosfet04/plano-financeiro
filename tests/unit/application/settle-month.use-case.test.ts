@@ -99,6 +99,7 @@ function build({
     closings: existing ? [existing] : [],
     fgts,
     reserveTargets: seeded.reserveTargets,
+    savingsBoosts: [],
     rates: ratesSnapshot,
   };
 

@@ -1,5 +1,6 @@
 import { closingSlack, pendingTurnover } from "@/core/domain/closing/month-closing.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
+import { setBoostFrom } from "@/core/domain/plan/savings-boost.entity";
 import {
   projectPlan,
   type MonthProjection,
@@ -362,6 +363,12 @@ export class PlanReviewUseCase {
         effectiveFrom: target.effectiveFrom,
         months: target.months,
       })),
+      savingsBoosts: snapshot.savingsBoosts.map((boost) => ({
+        startsOn: boost.startsOn,
+        endsOn: boost.endsOn,
+        amount: boost.amount,
+        note: boost.note,
+      })),
       rates: snapshot.rates
         ? {
             selicAnnual: snapshot.rates.selicAnnual,
@@ -517,6 +524,20 @@ export class PlanReviewUseCase {
           change.kind === SuggestionKind.MOVE_GOAL
             ? { ...goal, targetMonth: change.targetMonth }
             : { ...goal, amount: change.amount }
+        );
+        return ok(undefined);
+      }
+
+      case SuggestionKind.SET_SAVINGS_BOOST: {
+        const snapshot = await this.plans.loadSnapshot(planId);
+        if (!snapshot) return err(new DomainError("PLAN_NOT_FOUND", "Plano não encontrado."));
+        await this.plans.replaceSavingsBoosts(
+          planId,
+          setBoostFrom(snapshot.savingsBoosts, change, {
+            planId,
+            newId: this.ids.generate(),
+            note: "Revisão mensal",
+          })
         );
         return ok(undefined);
       }

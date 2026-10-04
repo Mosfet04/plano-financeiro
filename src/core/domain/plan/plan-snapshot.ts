@@ -8,6 +8,7 @@ import type { Goal } from "../goal/goal.entity";
 import type { Investment } from "../investment/investment.entity";
 import type { MarketRatesSnapshot } from "../market/market-rates.entity";
 import type { IncomeSettings, Plan, ReserveTarget, YieldPolicy } from "./plan.entity";
+import type { SavingsBoost } from "./savings-boost.entity";
 
 /**
  * Tudo que o motor de projeção precisa, carregado de uma vez. Existe para o
@@ -28,5 +29,6 @@ export interface PlanSnapshot {
   readonly closings: readonly MonthClosing[];
   readonly fgts: FgtsSettings | null;
   readonly reserveTargets: readonly ReserveTarget[];
+  readonly savingsBoosts: readonly SavingsBoost[];
   readonly rates: MarketRatesSnapshot | null;
 }

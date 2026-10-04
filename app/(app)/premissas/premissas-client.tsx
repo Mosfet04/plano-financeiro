@@ -10,11 +10,13 @@ import {
   deleteBudgetCategory,
   deleteCashAccount,
   deleteExtraAmortization,
+  deleteSavingsBoost,
   deleteInvestment,
   deleteRecurringItem,
   saveBudgetCategory,
   saveCashAccount,
   saveExtraAmortization,
+  saveSavingsBoost,
   saveFgtsSettings,
   saveFinancing,
   saveIncomeSettings,
@@ -131,6 +133,13 @@ export interface PremissasData {
     accrueInvestments: boolean;
   };
   reserveTargets: Array<{ id: string; effectiveFrom: string; months: number }>;
+  savingsBoosts: Array<{
+    id: string;
+    startsOn: string;
+    endsOn: string | null;
+    amount: number;
+    note: string | null;
+  }>;
   referenceRateMonthly: number | null;
 }
 
@@ -189,6 +198,7 @@ export function PremissasClient({ data }: { data: PremissasData }) {
       <RendaSection income={data.income} />
       <RecurringSection items={data.recurringItems} />
       <CategoriesSection categories={data.categories} />
+      <SavingsBoostSection boosts={data.savingsBoosts} today={data.today} />
       <FinancingSection financing={data.financing} referenceRate={data.referenceRateMonthly} />
       <ExtraAmortizationsSection
         extras={data.extraAmortizations}
@@ -1244,6 +1254,177 @@ function InvestmentSheet({
  * duas fontes alimentando a mesma regra, e ter dois interruptores para isso
  * seria convite a configurá-los diferente sem querer.
  */
+/**
+ * Guardar mais do que o orçamento deixa. A meta do mês sobe, o "quanto dá para
+ * gastar hoje" desce na mesma medida, e a sobra extra vai para a quitação.
+ */
+function SavingsBoostSection({
+  boosts,
+  today,
+}: {
+  boosts: PremissasData["savingsBoosts"];
+  today: string;
+}) {
+  const { pending, run } = useSaver();
+  const [adding, setAdding] = React.useState(false);
+
+  const currentMonth = today.slice(0, 7);
+  const sorted = [...boosts].sort((a, b) => a.startsOn.localeCompare(b.startsOn));
+  const period = (boost: (typeof sorted)[number]) =>
+    boost.endsOn
+      ? `${formatMonth(boost.startsOn as YearMonth)} a ${formatMonth(boost.endsOn as YearMonth)}`
+      : `desde ${formatMonth(boost.startsOn as YearMonth)}`;
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between">
+        <div className="flex flex-col gap-1">
+          <CardTitle>Reforço de meta</CardTitle>
+          <p className="text-fg-muted text-xs">
+            Quanto guardar a mais por mês, além da sobra que o orçamento já deixa. A meta do mês
+            sobe, o <strong>quanto dá para gastar hoje</strong> desce na mesma medida, e o dinheiro
+            vai para a quitação. A revisão mensal propõe subir quando você bate a meta com folga, e
+            recuar quando não bate.
+          </p>
+        </div>
+        <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+          <Plus className="size-4" />
+          Definir
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1 px-2">
+        {sorted.length === 0 ? (
+          <p className="text-fg-muted px-2 py-2 text-sm">
+            Nenhum. A meta é só o que o orçamento deixa sobrar.
+          </p>
+        ) : null}
+        {sorted.map((boost) => {
+          const past = boost.endsOn !== null && boost.endsOn < currentMonth;
+          return (
+            <div
+              key={boost.id}
+              className={cn(
+                "rounded-control hover:bg-surface-hover flex items-center gap-3 px-2 py-2",
+                past && "opacity-60"
+              )}
+            >
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-semibold">{period(boost)}</span>
+                {boost.note ? <span className="text-fg-muted text-xs">{boost.note}</span> : null}
+              </div>
+              <span className="tabular shrink-0 text-sm font-semibold">
+                +{money(boost.amount)}/mês
+              </span>
+              <button
+                type="button"
+                aria-label={`Remover reforço ${period(boost)}`}
+                disabled={pending}
+                onClick={() => run(() => deleteSavingsBoost({ id: boost.id }), "Reforço removido.")}
+                className="rounded-control text-fg-muted hover:bg-danger-bg hover:text-danger grid size-9 shrink-0 place-items-center disabled:opacity-40"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </div>
+          );
+        })}
+      </CardContent>
+
+      {adding ? (
+        <SavingsBoostSheet
+          pending={pending}
+          defaultStart={currentMonth}
+          onClose={() => setAdding(false)}
+          onSave={(startsOn, endsOn, amount) =>
+            run(
+              async () => {
+                const result = await saveSavingsBoost({ startsOn, endsOn, amount });
+                if (result.ok) setAdding(false);
+                return result;
+              },
+              amount > 0 ? "Reforço definido. A meta já foi refeita." : "Reforço retirado."
+            )
+          }
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function SavingsBoostSheet({
+  pending,
+  defaultStart,
+  onClose,
+  onSave,
+}: {
+  pending: boolean;
+  defaultStart: string;
+  onClose: () => void;
+  onSave: (startsOn: string, endsOn: string | null, amount: number) => void;
+}) {
+  const [startsOn, setStartsOn] = React.useState(defaultStart);
+  const [endsOn, setEndsOn] = React.useState("");
+  const [amount, setAmount] = React.useState(0);
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title="Reforço de meta"
+      footer={
+        <>
+          <Button type="button" variant="subtle" size="touch" className="flex-1" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            form="reforco-form"
+            variant="primary"
+            size="touch"
+            className="flex-1"
+            disabled={pending}
+          >
+            {pending ? "Salvando…" : "Salvar"}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="reforco-form"
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!/^\d{4}-\d{2}$/.test(startsOn)) {
+            toast.error("Escolha o mês de início.");
+            return;
+          }
+          if (endsOn && endsOn < startsOn) {
+            toast.error("O fim não pode vir antes do início.");
+            return;
+          }
+          onSave(startsOn, endsOn || null, amount);
+        }}
+      >
+        <Field label="Guardar a mais por mês" hint="Zero tira o reforço a partir do início.">
+          <MoneyInput value={amount} onChange={setAmount} />
+        </Field>
+        <Field
+          label="A partir de"
+          hint="Substitui o reforço deste mês em diante; o que valia antes fica como estava."
+        >
+          <Input
+            type="month"
+            value={startsOn}
+            onChange={(event) => setStartsOn(event.target.value)}
+          />
+        </Field>
+        <Field label="Até (opcional)" hint="Em branco, vale até você mudar.">
+          <Input type="month" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} />
+        </Field>
+      </form>
+    </Sheet>
+  );
+}
+
 function ExtraAmortizationsSection({
   extras,
   hasFinancing,

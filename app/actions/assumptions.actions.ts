@@ -9,6 +9,7 @@ import type { AmortizationSystem } from "@/core/domain/financing/financing.entit
 import type { Indexer } from "@/core/domain/investment/investment.entity";
 import type { ExtraAmortizationEffect } from "@/core/domain/projection/amortization";
 import type { YieldMode } from "@/core/domain/plan/plan.entity";
+import { setBoostFrom } from "@/core/domain/plan/savings-boost.entity";
 import { reais } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
 
@@ -475,6 +476,67 @@ export async function saveExtraAmortization(input: z.input<typeof extraAmortizat
     month: parsed.data.month as YearMonth,
     amount: reais(parsed.data.amount),
   });
+
+  revalidateProjection();
+  return { ok: true as const };
+}
+
+const savingsBoostSchema = z.object({
+  startsOn: monthSchema,
+  endsOn: monthSchema.nullable().default(null),
+  /** Reais; zero tira o reforço a partir de `startsOn`. */
+  amount: z.number().min(0).max(1_000_000),
+});
+
+/** "A partir deste mês, guardo X a mais." Substitui o reforço dali para a frente. */
+export async function saveSavingsBoost(input: z.input<typeof savingsBoostSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = savingsBoostSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+  const d = parsed.data;
+  if (d.endsOn !== null && d.endsOn < d.startsOn) return invalidInput;
+
+  const snapshot = await ctx.container.repos.plans.loadSnapshot(ctx.planId);
+  if (!snapshot) return invalidInput;
+
+  await ctx.container.repos.plans.replaceSavingsBoosts(
+    ctx.planId,
+    setBoostFrom(
+      snapshot.savingsBoosts,
+      {
+        startsOn: d.startsOn as YearMonth,
+        endsOn: (d.endsOn as YearMonth | null) ?? null,
+        amount: reais(d.amount),
+      },
+      { planId: ctx.planId, newId: ctx.container.ids.generate() }
+    )
+  );
+
+  revalidateProjection();
+  return { ok: true as const };
+}
+
+const savingsBoostIdSchema = z.object({ id: z.string().min(1) });
+
+export async function deleteSavingsBoost(input: z.input<typeof savingsBoostIdSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = savingsBoostIdSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  // O id vem do cliente: só vale se for um reforço do próprio plano.
+  const snapshot = await ctx.container.repos.plans.loadSnapshot(ctx.planId);
+  if (!snapshot || !snapshot.savingsBoosts.some((boost) => boost.id === parsed.data.id)) {
+    return invalidInput;
+  }
+
+  await ctx.container.repos.plans.replaceSavingsBoosts(
+    ctx.planId,
+    snapshot.savingsBoosts.filter((boost) => boost.id !== parsed.data.id)
+  );
 
   revalidateProjection();
   return { ok: true as const };

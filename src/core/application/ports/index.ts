@@ -9,6 +9,7 @@ import type { Goal } from "@/core/domain/goal/goal.entity";
 import type { Investment } from "@/core/domain/investment/investment.entity";
 import type { MarketRatesSnapshot, RateSource } from "@/core/domain/market/market-rates.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
+import type { SavingsBoost } from "@/core/domain/plan/savings-boost.entity";
 import type {
   PlanReview,
   PlanSuggestion,
@@ -58,6 +59,11 @@ export interface PlanRepository {
   saveYieldPolicy(policy: YieldPolicy, accrueInvestments: boolean): Promise<void>;
   saveReserveTarget(target: ReserveTarget): Promise<void>;
   deleteReserveTarget(id: string): Promise<void>;
+  /**
+   * Troca o conjunto inteiro de reforços de meta do plano, tudo ou nada. Quem
+   * calcula o conjunto novo é `setBoostFrom`, que também serve à simulação.
+   */
+  replaceSavingsBoosts(planId: string, boosts: readonly SavingsBoost[]): Promise<void>;
 }
 
 export interface RecurringItemRepository {

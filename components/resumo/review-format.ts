@@ -41,6 +41,12 @@ function describeChange(suggestion: PlanSuggestion, snapshot: PlanSnapshot): str
       const from = goal ? `${formatBRL(goal.amount)} → ` : "";
       return `${goal?.name ?? "Meta removida"}: ${from}${formatBRL(change.amount)}`;
     }
+    case SuggestionKind.SET_SAVINGS_BOOST: {
+      const until = change.endsOn ? ` até ${formatMonth(change.endsOn)}` : "";
+      return change.amount > 0
+        ? `Reforço de meta: guardar ${formatBRL(change.amount)} a mais por mês, de ${formatMonth(change.startsOn)}${until}`
+        : `Tirar o reforço de meta a partir de ${formatMonth(change.startsOn)}`;
+    }
     case SuggestionKind.ADD_EXTRA_AMORTIZATION:
       return `Amortizar ${formatBRL(change.amount)} em ${formatMonth(change.month)}, do caixa de quitação`;
     case SuggestionKind.NOTE:

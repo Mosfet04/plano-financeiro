@@ -42,6 +42,7 @@ export function buildProjectionInput(
     closings: snapshot.closings,
     fgts: snapshot.fgts,
     reserveTargets: snapshot.reserveTargets,
+    savingsBoosts: snapshot.savingsBoosts,
     yieldPolicy: snapshot.yieldPolicy,
     rates: snapshot.rates,
     options: { accrueInvestments: snapshot.accrueInvestments, asOfDate },

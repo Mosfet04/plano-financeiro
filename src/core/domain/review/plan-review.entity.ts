@@ -1,5 +1,6 @@
 import { GoalStatus } from "../goal/goal.entity";
 import type { PlanSnapshot } from "../plan/plan-snapshot";
+import { setBoostFrom } from "../plan/savings-boost.entity";
 import type { ProjectionSummary } from "../projection/project-plan";
 import type { Cents } from "../shared/money";
 import type { YearMonth } from "../shared/month";
@@ -16,6 +17,11 @@ export const SuggestionKind = {
   /** Mês de uma meta, ou nulo para tirá-la da conta. */
   MOVE_GOAL: "MOVE_GOAL",
   SET_GOAL_AMOUNT: "SET_GOAL_AMOUNT",
+  /**
+   * Reforço de meta: guardar X a mais por mês a partir de um mês. Substitui o
+   * reforço dali para a frente; zero tira. É a alavanca da meta mais arrojada.
+   */
+  SET_SAVINGS_BOOST: "SET_SAVINGS_BOOST",
   /** Amortização do bolso num mês. Mesmo mês de novo sobrescreve, como em /premissas. */
   ADD_EXTRA_AMORTIZATION: "ADD_EXTRA_AMORTIZATION",
   /** Conselho sem mudança no plano: conferir uma caixinha, mudar dinheiro de conta. */
@@ -37,6 +43,12 @@ export type SuggestionChange =
   | {
       readonly kind: typeof SuggestionKind.SET_GOAL_AMOUNT;
       readonly goalId: string;
+      readonly amount: Cents;
+    }
+  | {
+      readonly kind: typeof SuggestionKind.SET_SAVINGS_BOOST;
+      readonly startsOn: YearMonth;
+      readonly endsOn: YearMonth | null;
       readonly amount: Cents;
     }
   | {
@@ -164,6 +176,23 @@ export function applyChanges(
         next = {
           ...next,
           goals: next.goals.map((candidate) => (candidate.id === goal.id ? updated : candidate)),
+        };
+        break;
+      }
+
+      case SuggestionKind.SET_SAVINGS_BOOST: {
+        if (change.amount < 0) {
+          return err(new DomainError("INVALID_AMOUNT", "O reforço não pode ser negativo."));
+        }
+        if (change.endsOn !== null && change.endsOn < change.startsOn) {
+          return err(new DomainError("INVALID_PERIOD", "O reforço termina antes de começar."));
+        }
+        next = {
+          ...next,
+          savingsBoosts: setBoostFrom(next.savingsBoosts, change, {
+            planId: next.plan.id,
+            newId: `simulado-${change.startsOn}`,
+          }),
         };
         break;
       }

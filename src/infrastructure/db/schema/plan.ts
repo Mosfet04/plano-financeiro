@@ -1,4 +1,12 @@
-import { integer, numeric, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 import { users } from "./auth";
 
@@ -102,6 +110,29 @@ export const monthClosings = pgTable(
     note: text("note"),
   },
   (t) => [uniqueIndex("uq_month_closing_per_month").on(t.planId, t.month)]
+);
+
+/**
+ * Reforço de meta: quanto guardar a mais por mês, com vigência. Várias linhas
+ * somam no mesmo mês, mas a regra de gravação (`setBoostFrom`) mantém uma só
+ * em vigor por vez.
+ */
+export const savingsBoosts = pgTable(
+  "savings_boosts",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    /** "YYYY-MM". */
+    startsOn: text("starts_on").notNull(),
+    /** "YYYY-MM"; nulo = até mudar. */
+    endsOn: text("ends_on"),
+    amountCents: integer("amount_cents").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("idx_savings_boosts_plan").on(t.planId)]
 );
 
 export const reserveTargets = pgTable(

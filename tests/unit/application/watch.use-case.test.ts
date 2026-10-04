@@ -131,6 +131,7 @@ describe("GetWatchSnapshotUseCase", () => {
       closings: [],
       fgts: null,
       reserveTargets: seeded.reserveTargets,
+      savingsBoosts: [],
       rates: ratesSnapshot,
     };
     const transporte = seeded.categories[0];

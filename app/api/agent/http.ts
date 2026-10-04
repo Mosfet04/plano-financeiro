@@ -57,6 +57,12 @@ const changeSchema = z.discriminatedUnion("kind", [
     amount: centsSchema,
   }),
   z.object({
+    kind: z.literal(SuggestionKind.SET_SAVINGS_BOOST),
+    startsOn: monthSchema,
+    endsOn: monthSchema.nullable(),
+    amount: centsSchema,
+  }),
+  z.object({
     kind: z.literal(SuggestionKind.ADD_EXTRA_AMORTIZATION),
     month: monthSchema,
     amount: centsSchema,

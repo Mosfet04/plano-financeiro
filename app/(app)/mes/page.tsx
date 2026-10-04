@@ -92,6 +92,7 @@ export default async function MesPage({
     mealCardOverflow: closing.mealCardOverflow,
     leftover: closing.leftover,
     planTarget: closing.planTarget,
+    savingsBoost: closing.savingsBoost,
     onPlan: closing.onPlan,
     slack: closing.slack,
     allowance: closing.allowance,

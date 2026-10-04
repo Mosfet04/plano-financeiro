@@ -56,6 +56,7 @@ export function spreadsheetProjectionInput(): ProjectionInput {
     // A planilha não modela FGTS — ela nunca amortizou fora da parcela.
     fgts: null,
     reserveTargets: seeded.reserveTargets,
+    savingsBoosts: [],
     yieldPolicy: seeded.yieldPolicy,
     rates: ratesSnapshot,
     options: { accrueInvestments: seeded.accrueInvestments, asOfDate: "2026-08-24" },

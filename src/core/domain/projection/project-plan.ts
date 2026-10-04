@@ -12,6 +12,7 @@ import { GoalStatus, type Goal } from "../goal/goal.entity";
 import type { Investment } from "../investment/investment.entity";
 import type { MarketRatesSnapshot } from "../market/market-rates.entity";
 import type { IncomeSettings, ReserveTarget, YieldPolicy } from "../plan/plan.entity";
+import { boostFor, type SavingsBoost } from "../plan/savings-boost.entity";
 import {
   addCents,
   cents,
@@ -83,6 +84,8 @@ export interface ProjectionInput {
   /** FGTS como fonte de amortização periódica. Nulo ou desligado = não existe. */
   readonly fgts: FgtsSettings | null;
   readonly reserveTargets: readonly ReserveTarget[];
+  /** Quanto guardar a mais por mês, além do que o orçamento deixa. */
+  readonly savingsBoosts: readonly SavingsBoost[];
   readonly yieldPolicy: YieldPolicy;
   readonly rates: MarketRatesSnapshot | null;
   readonly options: ProjectionOptions;
@@ -96,6 +99,11 @@ export interface MonthProjection {
   readonly otherFixed: Cents;
   readonly variable: Cents;
   readonly goals: Cents;
+  /**
+   * Reforço de meta: o gasto variável que você se comprometeu a não fazer.
+   * Já está somado em `leftover`; `variable` continua sendo o orçamento.
+   */
+  readonly savingsBoost: Cents;
   readonly income: Cents;
   readonly leftover: Cents;
   readonly maturedInvestments: Cents;
@@ -293,6 +301,7 @@ interface BaseRow {
   otherFixed: Cents;
   variable: Cents;
   goals: Cents;
+  savingsBoost: Cents;
   income: Cents;
   leftover: Cents;
   maturedInvestments: Cents;
@@ -471,6 +480,9 @@ function computeBaseRows(
     const otherFixed = sumRecurring(input.recurringItems, month, ItemGroup.FIXED);
     const goalsDue = sumGoalsDue(input.goals, month);
     const monthIncome = monthlyIncome(income, month, salary);
+    // Gastar menos do que o orçamento é o reforço: a sobra sobe, o orçamento
+    // (e o custo de vida que dimensiona a reserva) continua o mesmo.
+    const savingsBoost = boostFor(input.savingsBoosts, month, variable);
 
     rows.push({
       month,
@@ -478,8 +490,9 @@ function computeBaseRows(
       otherFixed,
       variable,
       goals: goalsDue,
+      savingsBoost,
       income: monthIncome,
-      leftover: cents(monthIncome - housing - otherFixed - variable - goalsDue),
+      leftover: cents(monthIncome - housing - otherFixed - variable - goalsDue + savingsBoost),
       maturedInvestments: maturitiesByMonth.get(month) ?? ZERO,
       debt,
       installment,
@@ -600,6 +613,7 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
       otherFixed: row.otherFixed,
       variable: row.variable,
       goals: row.goals,
+      savingsBoost: row.savingsBoost,
       income: row.income,
       leftover: row.leftover,
       maturedInvestments: row.maturedInvestments,

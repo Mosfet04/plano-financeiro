@@ -54,24 +54,32 @@ taxas são decimais ao ano (`0.139` = 13,9%). Nos textos para o usuário, escrev
 - `spending`: orçado × gasto por categoria nos últimos 3 meses, com `categoryId`.
 - `categories`, `goals` (com `id`, `targetMonth` e `cashAfterTargetMonth`), `financing`,
   `cashAccounts` (com `daysSinceCheck` e `annualNetYield`), `investments` (vencimentos), `fgts`,
-  `reserveTargets`, `rates`, `income`, `recurringItems`.
-- `months`: as próximas 24 linhas da projeção (renda, moradia, fixos, variável, metas, sobra,
-  reserva, caixa de quitação, dívida).
+  `reserveTargets`, `rates`, `income`, `recurringItems`, `savingsBoosts` (reforços de meta
+  cadastrados).
+- `months`: as próximas 24 linhas da projeção (renda, moradia, fixos, variável, metas,
+  `savingsBoost`, sobra, reserva, caixa de quitação, dívida). A sobra já inclui o reforço.
 - `previousReviews`: as últimas revisões e o que foi feito com cada sugestão (`APPLIED`,
   `DISMISSED`, `SUPERSEDED`, `PENDING`). **É a sua memória entre um mês e outro.**
 
 ## As alavancas: o campo `change`
 
-| `kind`                   | campos                              | quando usar                                                                       |
-| ------------------------ | ----------------------------------- | --------------------------------------------------------------------------------- |
-| `SET_CATEGORY_BUDGET`    | `categoryId`, `monthlyBudget`       | orçamento irreal (estoura sempre) ou folgado demais                               |
-| `MOVE_GOAL`              | `goalId`, `targetMonth` (ou `null`) | meta que cai no mês do buraco ou aperta a reserva                                 |
-| `SET_GOAL_AMOUNT`        | `goalId`, `amount`                  | meta com valor desatualizado                                                      |
-| `ADD_EXTRA_AMORTIZATION` | `month`, `amount`                   | só com `amortizationAdvice.verdict = AMORTIZE`                                    |
-| `NOTE`                   | (nenhum)                            | conselho sem mudança no plano: conferir saldo, mover dinheiro, resgatar aplicação |
+| `kind`                   | campos                                     | quando usar                                                                       |
+| ------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------- |
+| `SET_CATEGORY_BUDGET`    | `categoryId`, `monthlyBudget`              | orçamento irreal (estoura sempre) ou folgado demais                               |
+| `MOVE_GOAL`              | `goalId`, `targetMonth` (ou `null`)        | meta que cai no mês do buraco ou aperta a reserva                                 |
+| `SET_GOAL_AMOUNT`        | `goalId`, `amount`                         | meta com valor desatualizado                                                      |
+| `SET_SAVINGS_BOOST`      | `startsOn`, `endsOn` (ou `null`), `amount` | meta mais arrojada (ou recuar) quando o histórico mostra folga (ou aperto)        |
+| `ADD_EXTRA_AMORTIZATION` | `month`, `amount`                          | só com `amortizationAdvice.verdict = AMORTIZE`                                    |
+| `NOTE`                   | (nenhum)                                   | conselho sem mudança no plano: conferir saldo, mover dinheiro, resgatar aplicação |
 
 `targetMonth: null` tira a meta da conta sem apagá-la. Uma amortização no mesmo mês de outra
 substitui a anterior.
+
+`SET_SAVINGS_BOOST` quer dizer "a partir de `startsOn`, guardar `amount` a mais por mês, além do
+que o orçamento deixa". Ele **substitui** o reforço de `startsOn` em diante (subir, baixar ou
+`amount: 0` para tirar), e o que valia antes fica como estava. A meta do mês sobe nesse valor e o
+"quanto dá para gastar hoje" do app e do relógio desce na mesma medida. A meta fica mais arrojada
+sem cortar uma categoria específica.
 
 ## Passo a passo
 
@@ -117,6 +125,31 @@ Ordem de prioridade quando as alavancas competem:
 4. **As metas são preservadas.** Prefira mover uma meta de mês a cortar o valor dela, e cortar o
    valor a tirá-la da conta.
 
+### 3a. A meta mais arrojada (reforço de meta)
+
+É a alavanca que mais encurta a quitação, porque cada real a mais por mês vai para o caixa de
+quitação e rende até lá. Use-a com disciplina: uma meta que a pessoa não alcança vira frustração e
+para de orientar.
+
+- **Subir:** quando os **2 ou 3 últimos fechamentos** tiveram `slack` positivo, proponha um
+  reforço de cerca de **metade da menor folga** desses meses, arredondado para baixo em múltiplos
+  de R$ 50. Começa no mês corrente (`month` do review) e não tem fim (`endsOn: null`). Se já existe
+  reforço, o novo valor é o atual mais esse acréscimo.
+- **Segurar:** com só 1 mês de histórico, ou folga irregular, não suba. Diga no resumo quanto
+  faltou de evidência.
+- **Recuar:** se o último mês **com reforço** fechou com `slack` negativo, proponha baixar o reforço
+  pela metade. Se foram dois meses seguidos, proponha zerar (`amount: 0`). Recuar a tempo faz a meta
+  continuar servindo de guia.
+- **Teto:** o reforço nunca passa de 30% do orçamento variável somado das categorias.
+- Com **caixa furado** (`minCash < 0`), a meta já cobra um reforço automático
+  (`monthlyTopUpToFixHole`), e o voluntário é absorvido por ele. Nesse caso, prefira as alavancas
+  que fecham o buraco e só sugira reforço depois que o buraco fechar.
+- Não proponha reforço e corte de categoria juntos para o mesmo dinheiro: é pedir o mesmo esforço
+  duas vezes. Escolha um, o corte quando uma categoria específica sobra sempre e o reforço quando a
+  folga vem espalhada.
+
+Simule sempre. No `rationale`, cite os meses e as folgas que justificam o valor.
+
 Para orçamento novo, use números redondos (múltiplos de R$ 10 até R$ 500 e de R$ 50 acima disso).
 Para "realista", tome algo perto da mediana do gasto dos 3 meses. Para "apertar", use o maior
 gasto dos 3 meses mais uns 10%.
@@ -126,7 +159,7 @@ gasto dos 3 meses mais uns 10%.
 - Sugestão **recusada** (`DISMISSED`) não volta, a menos que a situação tenha mudado de forma
   relevante. Se voltar, diga o que mudou.
 - Sugestão **aplicada** (`APPLIED`): veja se surtiu efeito (o slack melhorou? a categoria parou
-  de estourar?) e comente isso no resumo.
+  de estourar? a meta com reforço foi batida?) e comente isso no resumo.
 - Não repita um `NOTE` que já foi marcado como feito, a não ser que o problema tenha voltado.
 
 ### 5. Escrever e entregar

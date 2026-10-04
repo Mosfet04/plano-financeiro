@@ -40,6 +40,7 @@ import type {
   YieldMode,
   YieldPolicy,
 } from "@/core/domain/plan/plan.entity";
+import type { SavingsBoost } from "@/core/domain/plan/savings-boost.entity";
 import { cents, type Cents } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
 import type { Transaction, TransactionKind } from "@/core/domain/transaction/transaction.entity";
@@ -62,6 +63,7 @@ import type {
   planSuggestions,
   recurringItems,
   reserveTargets,
+  savingsBoosts,
   transactions,
   yieldPolicies,
 } from "../schema";
@@ -148,6 +150,17 @@ export function toReserveTarget(row: typeof reserveTargets.$inferSelect): Reserv
     planId: row.planId,
     effectiveFrom: month(row.effectiveFrom),
     months: row.months,
+  };
+}
+
+export function toSavingsBoost(row: typeof savingsBoosts.$inferSelect): SavingsBoost {
+  return {
+    id: row.id,
+    planId: row.planId,
+    startsOn: month(row.startsOn),
+    endsOn: row.endsOn ? month(row.endsOn) : null,
+    amount: money(row.amountCents),
+    note: row.note,
   };
 }
 

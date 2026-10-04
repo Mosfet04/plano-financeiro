@@ -9,6 +9,7 @@ import type {
 } from "@/core/application/ports";
 import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
+import type { SavingsBoost } from "@/core/domain/plan/savings-boost.entity";
 import type {
   IncomeSettings,
   Plan,
@@ -32,6 +33,7 @@ import {
   plans,
   recurringItems,
   reserveTargets,
+  savingsBoosts,
   yieldPolicies,
 } from "../schema";
 import {
@@ -48,6 +50,7 @@ import {
   toPlan,
   toRecurringItem,
   toReserveTarget,
+  toSavingsBoost,
   toYieldPolicy,
 } from "./mappers";
 
@@ -175,6 +178,7 @@ export class DrizzlePlanRepository implements PlanRepository {
       closingRows,
       fgtsRow,
       reserveRows,
+      boostRows,
       ratesRow,
     ] = await Promise.all([
       this.db.query.plans.findFirst({ where: eq(plans.id, planId) }),
@@ -210,6 +214,10 @@ export class DrizzlePlanRepository implements PlanRepository {
         where: eq(reserveTargets.planId, planId),
         orderBy: asc(reserveTargets.effectiveFrom),
       }),
+      this.db.query.savingsBoosts.findMany({
+        where: eq(savingsBoosts.planId, planId),
+        orderBy: asc(savingsBoosts.startsOn),
+      }),
       this.db.query.marketRates.findFirst({ orderBy: desc(marketRates.capturedAt) }),
     ]);
 
@@ -237,6 +245,7 @@ export class DrizzlePlanRepository implements PlanRepository {
       closings: closingRows.map(toMonthClosing),
       fgts: fgtsRow ? toFgtsSettings(fgtsRow) : null,
       reserveTargets: reserveRows.map(toReserveTarget),
+      savingsBoosts: boostRows.map(toSavingsBoost),
       rates: ratesRow ? toMarketRates(ratesRow) : null,
     };
   }
@@ -300,6 +309,26 @@ export class DrizzlePlanRepository implements PlanRepository {
 
   async deleteReserveTarget(id: string): Promise<void> {
     await this.db.delete(reserveTargets).where(eq(reserveTargets.id, id));
+  }
+  async replaceSavingsBoosts(planId: string, boosts: readonly SavingsBoost[]): Promise<void> {
+    const statements: BatchItem<"pg">[] = [
+      this.db.delete(savingsBoosts).where(eq(savingsBoosts.planId, planId)),
+    ];
+    if (boosts.length > 0) {
+      statements.push(
+        this.db.insert(savingsBoosts).values(
+          boosts.map((boost) => ({
+            id: boost.id,
+            planId,
+            startsOn: boost.startsOn,
+            endsOn: boost.endsOn,
+            amountCents: boost.amount,
+            note: boost.note,
+          }))
+        )
+      );
+    }
+    await this.db.batch(statements as [BatchItem<"pg">, ...BatchItem<"pg">[]]);
   }
 }
 

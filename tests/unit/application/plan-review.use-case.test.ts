@@ -47,6 +47,7 @@ function snapshot(): PlanSnapshot {
     closings: [],
     fgts: null,
     reserveTargets: seeded.reserveTargets,
+    savingsBoosts: [],
     rates: ratesSnapshot,
   };
 }
@@ -58,7 +59,10 @@ function build(plan = snapshot()) {
   const stored: PlanSuggestion[] = [];
   let counter = 0;
 
-  const plans = { loadSnapshot: vi.fn().mockResolvedValue(plan) } as unknown as PlanRepository;
+  const plans = {
+    loadSnapshot: vi.fn().mockResolvedValue(plan),
+    replaceSavingsBoosts: vi.fn(),
+  } as unknown as PlanRepository;
   const transactions = {
     listByMonth: vi.fn().mockResolvedValue([]),
   } as unknown as TransactionRepository;
@@ -100,7 +104,7 @@ function build(plan = snapshot()) {
     clock
   );
 
-  return { useCase, plan, stored, reviews, categories, goals, financings };
+  return { useCase, plan, plans, stored, reviews, categories, goals, financings };
 }
 
 describe("applyChanges", () => {
@@ -305,5 +309,30 @@ describe("PlanReviewUseCase", () => {
     expect(overview.value.categories.map((c) => c.id)).toEqual(plan.categories.map((c) => c.id));
     expect(overview.value.spending.map((s) => s.month)).toEqual(["2026-08", "2026-09"]);
     expect(overview.value.headline.minCash).toBeLessThan(0);
+  });
+
+  it("reforço de meta: adianta a quitação na simulação e grava o conjunto novo ao aplicar", async () => {
+    const { useCase, plans, stored } = build();
+    const change: SuggestionChange = {
+      kind: SuggestionKind.SET_SAVINGS_BOOST,
+      startsOn: monthOf(2026, 11),
+      endsOn: null,
+      amount: reais(400),
+    };
+
+    const simulated = await useCase.simulate("plan-1", [change]);
+    if (!simulated.ok) throw simulated.error;
+    expect(simulated.value.payoffMonthAfter! < simulated.value.payoffMonthBefore!).toBe(true);
+
+    await useCase.submit({
+      planId: "plan-1",
+      summary: "…",
+      suggestions: [{ title: "Guardar mais", rationale: "…", change }],
+    });
+    await useCase.decide("plan-1", stored[0].id, true);
+
+    expect(plans.replaceSavingsBoosts).toHaveBeenCalledWith("plan-1", [
+      expect.objectContaining({ startsOn: "2026-11", endsOn: null, amount: reais(400) }),
+    ]);
   });
 });

@@ -74,6 +74,7 @@ export interface MesData {
   mealCardOverflow: number;
   leftover: number;
   planTarget: number;
+  savingsBoost: number;
   onPlan: boolean;
   slack: number;
   allowance: Record<"cash" | "mealCard", Allowance>;
@@ -145,7 +146,11 @@ export function MesClient({ data }: { data: MesData }) {
           label="Sobrou no mês"
           value={money(data.leftover)}
           tone={data.leftover >= 0 ? "positive" : "negative"}
-          hint={`Meta do plano: ${money(data.planTarget)}`}
+          hint={
+            data.savingsBoost > 0
+              ? `Meta do plano: ${money(data.planTarget)}, com ${money(data.savingsBoost)} de reforço`
+              : `Meta do plano: ${money(data.planTarget)}`
+          }
         />
         <Stat
           label={data.onPlan ? "No plano" : "Abaixo do plano"}
