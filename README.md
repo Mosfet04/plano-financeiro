@@ -328,10 +328,17 @@ JAVA_HOME=/opt/android-studio/jbr ./gradlew :app:assembleRelease   # app/build/o
 ```
 
 No relógio: Configurações → Sobre o relógio → Software → toque 5× em "Versão do software"; em
-Opções do desenvolvedor, ligue "Depuração ADB" e "Depuração por Wi-Fi". Depois
-`adb pair IP:PORTA_DE_PAREAMENTO`, `adb connect IP:PORTA` e
-`adb install app/build/outputs/apk/release/app-release.apk`. A release é assinada com a chave de
-debug — serve para instalar por ADB, não para a Play Store.
+Opções do desenvolvedor, ligue "Depuração ADB" e "Depuração por Wi-Fi". Na primeira vez neste PC,
+`adb pair IP:PORTA_DE_PAREAMENTO`. Daí em diante, cada atualização é um comando só, com a porta que
+a tela "Depuração por Wi-Fi" mostra:
+
+```bash
+npm run watch:install -- IP:PORTA
+```
+
+Ele roda os testes do relógio, gera o APK de release e instala com `adb install -r` — os dados e o
+pareamento ficam. A release é assinada com a chave de debug: serve para instalar por ADB, não para
+a Play Store.
 
 Em dev, confirme o código no navegador do PC (`localhost:3000/dispositivos`): o login Google não
 aceita voltar para o IP da rede local, então o "Abrir no celular" só funciona em produção.
@@ -410,13 +417,13 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/mark
 
 ## Scripts
 
-| Comando                                          | O que faz                                                                 |
-| ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `npm run dev`                                    | servidor de desenvolvimento                                               |
-| `npm run test`                                   | testes (motor de projeção, IR da PLR, fechamento do mês, provider do BCB) |
-| `npm run typecheck` / `npm run lint`             | verificação estática                                                      |
-| `npm run db:generate` / `db:migrate` / `db:seed` | migrações e carga inicial                                                 |
-| `cd watch && ./gradlew :app:assembleRelease`     | APK do relógio (veja [Relógio](#relógio-galaxy-watch-8))                  |
+| Comando                                          | O que faz                                                                           |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `npm run dev`                                    | servidor de desenvolvimento                                                         |
+| `npm run test`                                   | testes (motor de projeção, IR da PLR, fechamento do mês, provider do BCB)           |
+| `npm run typecheck` / `npm run lint`             | verificação estática                                                                |
+| `npm run db:generate` / `db:migrate` / `db:seed` | migrações e carga inicial                                                           |
+| `npm run watch:install -- IP:PORTA`              | testa, gera o APK do relógio e instala por ADB ([Relógio](#relógio-galaxy-watch-8)) |
 
 ## Telas
 
