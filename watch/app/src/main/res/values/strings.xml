@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Plano</string>
+    <string name="tile_label">Pode gastar hoje</string>
+    <string name="complication_label">Dinheiro hoje</string>
+</resources>

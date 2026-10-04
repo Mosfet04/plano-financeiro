@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone do app: círculo na cor do Dinheiro com o "+" de lançar. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF8F94FA"
+        android:pathData="M24,0a24,24 0 1,0 0.01,0z" />
+    <path
+        android:pathData="M24,14v20M14,24h20"
+        android:strokeColor="#FF0C0C1E"
+        android:strokeLineCap="round"
+        android:strokeWidth="4" />
+</vector>
