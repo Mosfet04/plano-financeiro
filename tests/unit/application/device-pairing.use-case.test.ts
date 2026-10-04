@@ -6,7 +6,7 @@ import type {
   SecretGenerator,
 } from "@/core/application/ports";
 import { DevicePairingUseCase } from "@/core/application/use-cases/device-pairing.use-case";
-import type { Device, DevicePairing } from "@/core/domain/device/device.entity";
+import { DeviceKind, type Device, type DevicePairing } from "@/core/domain/device/device.entity";
 
 function setup() {
   const pairings = new Map<string, DevicePairing>();
@@ -119,16 +119,39 @@ describe("DevicePairingUseCase", () => {
     const { token, deviceId } = issued.value;
 
     ctx.advance(80 * 86_400);
-    expect((await ctx.useCase.authenticate(token)).ok).toBe(true);
+    expect((await ctx.useCase.authenticate(token, DeviceKind.WATCH)).ok).toBe(true);
     // O uso no dia 80 empurrou o prazo: no dia 160 ainda vale.
     ctx.advance(80 * 86_400);
-    expect((await ctx.useCase.authenticate(token)).ok).toBe(true);
+    expect((await ctx.useCase.authenticate(token, DeviceKind.WATCH)).ok).toBe(true);
 
     ctx.advance(91 * 86_400);
-    expect((await ctx.useCase.authenticate(token)).ok).toBe(false);
+    expect((await ctx.useCase.authenticate(token, DeviceKind.WATCH)).ok).toBe(false);
 
-    expect((await ctx.useCase.authenticate("pfw_qualquer")).ok).toBe(false);
+    expect((await ctx.useCase.authenticate("pfw_qualquer", DeviceKind.WATCH)).ok).toBe(false);
     ctx.devices.set(deviceId, { ...ctx.devices.get(deviceId)!, revokedAt: new Date() });
-    expect((await ctx.useCase.authenticate(token)).ok).toBe(false);
+    expect((await ctx.useCase.authenticate(token, DeviceKind.WATCH)).ok).toBe(false);
+  });
+
+  it("o token da rotina só abre as rotas da rotina, e gerar outro revoga o anterior", async () => {
+    const ctx = setup();
+    const first = await ctx.useCase.issueAgentToken("plan-1");
+    expect(first.token.startsWith("pfa_")).toBe(true);
+
+    expect((await ctx.useCase.authenticate(first.token, DeviceKind.AGENT)).ok).toBe(true);
+    expect((await ctx.useCase.authenticate(first.token, DeviceKind.WATCH)).ok).toBe(false);
+
+    const second = await ctx.useCase.issueAgentToken("plan-1");
+    expect((await ctx.useCase.authenticate(first.token, DeviceKind.AGENT)).ok).toBe(false);
+    const resolved = await ctx.useCase.authenticate(second.token, DeviceKind.AGENT);
+    expect(resolved.ok && resolved.value.planId).toBe("plan-1");
+  });
+
+  it("o token do relógio não abre as rotas da rotina", async () => {
+    const ctx = setup();
+    const started = await pairApproved(ctx);
+    const issued = await ctx.useCase.exchange(started.deviceCode);
+    if (!issued.ok) throw issued.error;
+
+    expect((await ctx.useCase.authenticate(issued.value.token, DeviceKind.AGENT)).ok).toBe(false);
   });
 });

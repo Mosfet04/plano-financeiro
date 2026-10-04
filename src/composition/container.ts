@@ -6,6 +6,7 @@ import { CloseMonthUseCase } from "@/core/application/use-cases/close-month.use-
 import { CreatePlanUseCase } from "@/core/application/use-cases/create-plan.use-case";
 import { DevicePairingUseCase } from "@/core/application/use-cases/device-pairing.use-case";
 import { GetProjectionUseCase } from "@/core/application/use-cases/get-projection.use-case";
+import { PlanReviewUseCase } from "@/core/application/use-cases/plan-review.use-case";
 import { SettleMonthUseCase } from "@/core/application/use-cases/settle-month.use-case";
 import { RefreshMarketRatesUseCase } from "@/core/application/use-cases/refresh-market-rates.use-case";
 import {
@@ -36,6 +37,7 @@ import {
   DrizzleMonthClosingRepository,
   DrizzlePlanRepository,
 } from "@/infra/db/repositories/plan.repository";
+import { DrizzlePlanReviewRepository } from "@/infra/db/repositories/review.repository";
 import { BcbSgsProvider } from "@/infra/market/bcb-sgs.provider";
 
 const systemClock: Clock = {
@@ -67,6 +69,7 @@ export function buildContainer() {
   const marketRates = new DrizzleMarketRatesRepository(db);
   const devices = new DrizzleDeviceRepository(db);
   const devicePairings = new DrizzleDevicePairingRepository(db);
+  const reviews = new DrizzlePlanReviewRepository(db);
   const ratesProvider = new BcbSgsProvider();
 
   const closeMonth = new CloseMonthUseCase(plans, transactions, systemClock);
@@ -106,6 +109,16 @@ export function buildContainer() {
         devicePairings,
         devices,
         nodeSecretGenerator,
+        uuidGenerator,
+        systemClock
+      ),
+      planReview: new PlanReviewUseCase(
+        plans,
+        closeMonth,
+        reviews,
+        categories,
+        goals,
+        financings,
         uuidGenerator,
         systemClock
       ),

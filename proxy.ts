@@ -10,14 +10,16 @@ const { auth } = NextAuth(authConfig);
  *
  * `/api/cron` fica de fora da sessão de propósito: ela se autentica por Bearer
  * na própria rota, porque quem chama é o Vercel Cron (ou o Claude), não um
- * navegador com cookie. `/api/watch` também: o relógio usa o token de
- * dispositivo, conferido em cada rota.
+ * navegador com cookie. `/api/watch` e `/api/agent` também: o relógio e a
+ * rotina mensal usam o token de dispositivo, conferido em cada rota.
  */
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
   "/api/cron",
   "/api/watch",
+  // Com a barra: só as rotas da rotina, não qualquer coisa que comece com "agent".
+  "/api/agent/",
   "/manifest.webmanifest",
   "/icon.svg",
   "/apple-icon",

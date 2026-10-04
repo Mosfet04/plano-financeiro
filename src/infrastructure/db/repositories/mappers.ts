@@ -4,7 +4,12 @@ import type {
   PaymentMethod,
 } from "@/core/domain/budget/budget-category.entity";
 import type { CashAccount } from "@/core/domain/cash/cash-account.entity";
-import type { Device, DevicePairing, PairingStatus } from "@/core/domain/device/device.entity";
+import type {
+  Device,
+  DeviceKind,
+  DevicePairing,
+  PairingStatus,
+} from "@/core/domain/device/device.entity";
 import type { FgtsSettings } from "@/core/domain/fgts/fgts.entity";
 import type { MonthClosing } from "@/core/domain/closing/month-closing.entity";
 import type {
@@ -21,6 +26,13 @@ import type { Goal, GoalStatus } from "@/core/domain/goal/goal.entity";
 import type { ExtraAmortizationEffect } from "@/core/domain/projection/amortization";
 import type { Indexer, Investment } from "@/core/domain/investment/investment.entity";
 import type { MarketRatesSnapshot, RateSource } from "@/core/domain/market/market-rates.entity";
+import type {
+  PlanReview,
+  PlanSuggestion,
+  ProjectionImpact,
+  SuggestionChange,
+  SuggestionStatus,
+} from "@/core/domain/review/plan-review.entity";
 import type {
   IncomeSettings,
   Plan,
@@ -45,7 +57,9 @@ import type {
   investments,
   monthClosings,
   marketRates,
+  planReviews,
   plans,
+  planSuggestions,
   recurringItems,
   reserveTargets,
   transactions,
@@ -267,6 +281,7 @@ export function toDevice(row: typeof devices.$inferSelect): Device {
   return {
     id: row.id,
     planId: row.planId,
+    kind: row.kind as DeviceKind,
     name: row.name,
     tokenHash: row.tokenHash,
     createdAt: row.createdAt,
@@ -287,5 +302,32 @@ export function toDevicePairing(row: typeof devicePairings.$inferSelect): Device
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     lastPolledAt: row.lastPolledAt,
+  };
+}
+
+export function toPlanReview(row: typeof planReviews.$inferSelect): PlanReview {
+  return {
+    id: row.id,
+    planId: row.planId,
+    month: month(row.month),
+    summary: row.summary,
+    createdAt: row.createdAt,
+  };
+}
+
+/** `change` e `impact` só são gravados por `PlanReviewUseCase`, que já os validou. */
+export function toPlanSuggestion(row: typeof planSuggestions.$inferSelect): PlanSuggestion {
+  return {
+    id: row.id,
+    planId: row.planId,
+    reviewId: row.reviewId,
+    title: row.title,
+    rationale: row.rationale,
+    change: row.change as SuggestionChange,
+    impact: (row.impact as ProjectionImpact | null) ?? null,
+    status: row.status as SuggestionStatus,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt,
   };
 }

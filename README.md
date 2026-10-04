@@ -38,9 +38,9 @@ Aliases: `@/core/*`, `@/infra/*`, `@/composition/*`, `@/*`.
 - **Nomes, tipos e arquivos em inglês**; rotas, UI e comentários de regra de negócio em português.
 - **`getEnv()` é a única leitura de `process.env`.** Nenhum módulo lê variável de ambiente direto.
 - **CRUD simples fala direto com `container.repos`**; só o que tem regra vira caso de uso. Hoje são
-  oito: `getProjection`, `createPlan`, `closeMonth`, `settleMonth` (a virada do mês),
-  `refreshMarketRates`, e os três do relógio — `devicePairing`, `watchSnapshot` e
-  `recordWatchTransaction`.
+  nove: `getProjection`, `createPlan`, `closeMonth`, `settleMonth` (a virada do mês),
+  `refreshMarketRates`, `planReview` (a revisão mensal), e os três do relógio —
+  `devicePairing`, `watchSnapshot` e `recordWatchTransaction`.
 - **Toda action confere o dono** antes de gravar ou apagar: id vindo do cliente não é confiável.
 
 ## Como o motor funciona
@@ -386,6 +386,52 @@ curl -X POST "$APP_URL/api/cron/market-rates" \
 Com as três taxas presentes a rota nem chama o BCB e grava a fonte como `AGENT`. Informando só
 algumas, o resto vem do BCB.
 
+## Revisão mensal (rotina do Claude)
+
+Todo dia 2, às 9h, uma rotina agendada do Claude Code roda na nuvem: lê o plano, confere o
+"previu × fiz", testa ajustes no motor de projeção e deixa **sugestões** num card do `/resumo`. A
+revisão **não muda nada sozinha**. Cada sugestão tem os botões Aplicar e Recusar, e a sua decisão
+volta para a rotina no mês seguinte. É a memória dela: o que foi recusado não volta sem motivo novo.
+
+As instruções da rotina ficam em [`routines/monthly-review.md`](routines/monthly-review.md) e são
+lidas do repositório a cada execução, então dá para ajustar a estratégia com um commit, sem mexer
+na rotina.
+
+**As alavancas são uma lista fechada** (`SuggestionKind`): orçamento de categoria, mês ou valor
+de meta, amortização do bolso num mês, e `NOTE` (conselho sem mudança, como conferir uma caixinha
+ou resgatar uma aplicação). Renda, financiamento e contas continuam só em `/premissas`.
+
+**O impacto é do servidor, não do agente.** Ao receber a revisão, `PlanReviewUseCase.submit`
+aplica cada mudança sozinha sobre o snapshot (`applyChanges`, função pura), reprojeta e guarda
+quitação, menor caixa e reforço, antes e depois. Uma sugestão com id que não é do plano derruba a
+revisão inteira. Uma revisão nova aposenta (`SUPERSEDED`) as sugestões pendentes da anterior,
+porque elas foram medidas contra um plano que já mudou.
+
+**API** (`app/api/agent/*`, fora da sessão no `proxy.ts`):
+
+| Rota                       | O que faz                                                  |
+| -------------------------- | ---------------------------------------------------------- |
+| `GET /api/agent/review`    | tudo o que a revisão precisa ler, dinheiro em centavos     |
+| `POST /api/agent/simulate` | testa até 10 mudanças no motor, sem gravar: antes × depois |
+| `POST /api/agent/review`   | entrega o resumo e até 8 sugestões, que viram pendentes    |
+
+**O token** é gerado em `/dispositivos` → Rotina do Claude e aparece uma vez só. Ele é um
+`devices` com `kind = AGENT`: mesmo hash, mesma expiração por 90 dias sem uso, mesma revogação dos
+relógios. O tipo é conferido na autenticação, então o token da rotina não abre `/api/watch` e o
+do relógio não abre `/api/agent`. Ele também só enxerga o plano de quem o gerou, nunca os outros.
+Gerar outro revoga o anterior.
+
+**Configurar a rotina** (uma vez):
+
+1. Conecte o GitHub à conta do Claude (`/web-setup` no Claude Code), para a rotina clonar o repo.
+2. No ambiente da rotina em claude.ai/code, defina `PLANO_API_URL` (a URL da Vercel, sem barra no
+   fim) e `PLANO_AGENT_TOKEN`, e libere acesso de rede ao domínio do app.
+3. Crie a rotina com `/schedule`: cron `0 12 2 * *` (dia 2, 9h em São Paulo), prompt
+   "Leia `routines/monthly-review.md` e siga as instruções".
+
+Se a virada do mês ainda não foi feita, a rotina só deixa um lembrete: com os saldos velhos,
+qualquer sugestão sairia de números errados.
+
 ## Configuração
 
 1. **Banco** — crie um projeto no [Neon](https://neon.tech) (free tier) e copie a connection string.
@@ -430,7 +476,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/mark
 `/resumo` (capa e alertas) · `/mes/virada` (a virada do mês) · `/mes` (lançamentos, orçamento,
 navegação entre meses, fechamento do mês e a série "previu ×
 fiz") · `/metas` · `/projecao` (gráfico e tabela) · `/premissas` (tudo editável) · `/aparencia` ·
-`/dispositivos` (parear e revogar relógios).
+`/dispositivos` (parear e revogar relógios, gerar o token da rotina mensal).
 
 No celular: barra inferior com quatro destinos e o botão central de novo lançamento, que abre uma
 folha de baixo. No desktop: rail vertical de ícones à esquerda. Design em Fluent 2, a linguagem

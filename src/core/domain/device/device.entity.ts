@@ -1,10 +1,22 @@
 /**
- * Um relógio pareado com o plano. O token de acesso nunca é guardado — só o
- * hash dele; quem perde o token pareia de novo.
+ * Quem usa o token. O relógio fala com `/api/watch`; a rotina mensal do Claude
+ * fala com `/api/agent`. Um token não abre as rotas do outro: vazar o da rotina
+ * não deixa ninguém lançar gasto, e o do relógio não lê o plano inteiro.
+ */
+export const DeviceKind = {
+  WATCH: "WATCH",
+  AGENT: "AGENT",
+} as const;
+export type DeviceKind = (typeof DeviceKind)[keyof typeof DeviceKind];
+
+/**
+ * Um relógio pareado com o plano, ou o token da rotina do Claude. O token de
+ * acesso nunca é guardado — só o hash dele; quem perde o token pareia de novo.
  */
 export interface Device {
   readonly id: string;
   readonly planId: string;
+  readonly kind: DeviceKind;
   readonly name: string;
   readonly tokenHash: string;
   readonly createdAt: Date;

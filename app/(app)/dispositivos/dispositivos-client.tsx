@@ -1,11 +1,11 @@
 "use client";
 
-import { Watch } from "lucide-react";
+import { Bot, Copy, Watch } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { approvePairing, revokeDevice } from "@/app/actions/device.actions";
+import { approvePairing, issueAgentToken, revokeDevice } from "@/app/actions/device.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
@@ -23,13 +23,45 @@ const date = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
 export function DispositivosClient({
   initialCode,
   devices,
+  agentTokens,
 }: {
   initialCode: string;
   devices: readonly DeviceRow[];
+  agentTokens: readonly DeviceRow[];
 }) {
   const router = useRouter();
   const [code, setCode] = React.useState(initialCode);
+  const [issuedToken, setIssuedToken] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
+
+  function handleIssueToken() {
+    if (
+      agentTokens.length > 0 &&
+      !window.confirm(
+        "Gerar outro token desliga o atual. A rotina só volta a funcionar com o novo."
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await issueAgentToken();
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setIssuedToken(result.token);
+      router.refresh();
+    });
+  }
+
+  async function handleCopy(token: string) {
+    try {
+      await navigator.clipboard.writeText(token);
+      toast.success("Token copiado.");
+    } catch {
+      toast.error("Não deu para copiar. Selecione o texto e copie à mão.");
+    }
+  }
 
   function handlePair(event: React.FormEvent) {
     event.preventDefault();
@@ -118,6 +150,71 @@ export function DispositivosClient({
               </div>
             ))
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Rotina do Claude</CardTitle>
+          <p className="text-fg-muted text-xs">
+            Todo dia 2 a rotina lê o plano, testa ajustes no motor e deixa sugestões no Resumo para
+            você aplicar ou recusar. Ela não muda nada sozinha. O token só dá acesso ao seu plano e
+            só às rotas da rotina.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {issuedToken ? (
+            <div className="border-brand bg-brand-tint rounded-control flex flex-col gap-2 border p-3">
+              <span className="text-xs font-semibold">
+                Copie agora — ele não aparece de novo. Cole como PLANO_AGENT_TOKEN no ambiente da
+                rotina.
+              </span>
+              <div className="flex items-center gap-2">
+                <code className="tabular min-w-0 flex-1 text-xs break-all">{issuedToken}</code>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  aria-label="Copiar token"
+                  onClick={() => handleCopy(issuedToken)}
+                >
+                  <Copy />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {agentTokens.map((device) => (
+            <div key={device.id} className="flex items-center gap-3">
+              <Bot className="text-fg-muted size-5 shrink-0" aria-hidden />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-semibold">{device.name}</span>
+                <span className="text-fg-muted text-xs">
+                  Gerado em {date(device.createdAt)} · usado em {date(device.lastUsedAt)} · expira
+                  em {date(device.expiresAt)}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="subtle"
+                size="sm"
+                disabled={pending}
+                onClick={() => handleRevoke(device)}
+              >
+                Revogar
+              </Button>
+            </div>
+          ))}
+
+          <Button
+            type="button"
+            variant={agentTokens.length > 0 ? "secondary" : "primary"}
+            size="touch"
+            disabled={pending}
+            onClick={handleIssueToken}
+          >
+            {agentTokens.length > 0 ? "Gerar outro token" : "Gerar token da rotina"}
+          </Button>
         </CardContent>
       </Card>
     </div>

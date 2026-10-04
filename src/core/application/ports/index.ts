@@ -10,6 +10,11 @@ import type { Investment } from "@/core/domain/investment/investment.entity";
 import type { MarketRatesSnapshot, RateSource } from "@/core/domain/market/market-rates.entity";
 import type { PlanSnapshot } from "@/core/domain/plan/plan-snapshot";
 import type {
+  PlanReview,
+  PlanSuggestion,
+  ReviewWithSuggestions,
+} from "@/core/domain/review/plan-review.entity";
+import type {
   IncomeSettings,
   Plan,
   ReserveTarget,
@@ -117,6 +122,18 @@ export interface MonthClosingRepository {
   /** Grava a virada inteira de uma vez — ou tudo, ou nada. */
   settle(turnover: MonthTurnover): Promise<void>;
   delete(id: string): Promise<void>;
+}
+
+export interface PlanReviewRepository {
+  /** As revisões mais novas primeiro, cada uma com as sugestões em ordem. */
+  listRecent(planId: string, limit: number): Promise<ReviewWithSuggestions[]>;
+  /**
+   * Grava a revisão e as sugestões, e aposenta (SUPERSEDED) as que ainda
+   * estavam pendentes — tudo ou nada.
+   */
+  submit(review: PlanReview, suggestions: readonly PlanSuggestion[]): Promise<void>;
+  findSuggestion(id: string): Promise<PlanSuggestion | null>;
+  saveSuggestion(suggestion: PlanSuggestion): Promise<void>;
 }
 
 export interface InvestmentRepository {

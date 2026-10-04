@@ -4,11 +4,14 @@ import { notFound } from "next/navigation";
 import { resolvePlanContext } from "@/app/actions/plan-context";
 import { TurnoverBanner } from "@/components/mes/turnover-banner";
 import { AmortizationAlert } from "@/components/resumo/amortization-alert";
+import { ReviewCard } from "@/components/resumo/review-card";
+import { toSuggestionView } from "@/components/resumo/review-format";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Stat } from "@/components/ui/stat";
 import { pendingTurnover } from "@/core/domain/closing/month-closing.entity";
 import { GoalStatus } from "@/core/domain/goal/goal.entity";
+import { SuggestionStatus } from "@/core/domain/review/plan-review.entity";
 import { formatBRL } from "@/core/domain/shared/money";
 import { formatMonth, monthOfISODate } from "@/core/domain/shared/month";
 
@@ -21,7 +24,10 @@ export default async function ResumoPage() {
   const ctx = await resolvePlanContext();
   if (!ctx) notFound();
 
-  const result = await ctx.container.useCases.getProjection.execute({ planId: ctx.planId });
+  const [result, review] = await Promise.all([
+    ctx.container.useCases.getProjection.execute({ planId: ctx.planId }),
+    ctx.container.useCases.planReview.latest(ctx.planId),
+  ]);
   if (!result.ok) notFound();
 
   const { snapshot, projection } = result.value;
@@ -43,6 +49,12 @@ export default async function ResumoPage() {
 
   const hasHole = projection.minCash < 0;
   const turnover = pendingTurnover(today, snapshot.closings, snapshot.plan.startMonth);
+
+  // A revisão fica à vista no mês dela, e depois só enquanto houver o que decidir.
+  const showReview =
+    review !== null &&
+    (review.review.month === currentMonth ||
+      review.suggestions.some((s) => s.status === SuggestionStatus.PENDING));
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,6 +78,15 @@ export default async function ResumoPage() {
       ) : null}
 
       <AmortizationAlert advice={projection.amortizationAdvice} />
+
+      {showReview ? (
+        <ReviewCard
+          title={`Revisão de ${formatMonth(review.review.month)}`}
+          createdAt={review.review.createdAt.toISOString()}
+          summary={review.review.summary}
+          suggestions={review.suggestions.map((s) => toSuggestionView(s, snapshot))}
+        />
+      ) : null}
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat

@@ -42,3 +42,16 @@ export async function revokeDevice(input: z.input<typeof revokeSchema>) {
   revalidatePath("/dispositivos");
   return { ok: true as const };
 }
+
+/**
+ * Token da rotina mensal do Claude. Aparece uma vez só, para colar no ambiente
+ * da rotina; gerar outro revoga o anterior.
+ */
+export async function issueAgentToken() {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const issued = await ctx.container.useCases.devicePairing.issueAgentToken(ctx.planId);
+  revalidatePath("/dispositivos");
+  return { ok: true as const, token: issued.token };
+}

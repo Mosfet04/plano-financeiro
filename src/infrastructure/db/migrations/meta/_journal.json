@@ -50,6 +50,13 @@
       "when": 1791136695381,
       "tag": "0006_watch_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791144722752,
+      "tag": "0007_plan_reviews",
+      "breakpoints": true
     }
   ]
 }

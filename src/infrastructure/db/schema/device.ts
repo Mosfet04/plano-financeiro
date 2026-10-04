@@ -2,7 +2,7 @@ import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 import { plans } from "./plan";
 
-/** Relógios pareados. Guarda o hash do token, nunca o token. */
+/** Relógios pareados e o token da rotina. Guarda o hash do token, nunca o token. */
 export const devices = pgTable(
   "devices",
   {
@@ -10,6 +10,9 @@ export const devices = pgTable(
     planId: text("plan_id")
       .notNull()
       .references(() => plans.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["WATCH", "AGENT"] })
+      .notNull()
+      .default("WATCH"),
     name: text("name").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),

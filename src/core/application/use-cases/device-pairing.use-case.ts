@@ -1,5 +1,6 @@
 import {
   deviceExpiry,
+  DeviceKind,
   isDeviceActive,
   isPairingExpired,
   normalizeUserCode,
@@ -33,6 +34,8 @@ export interface IssuedToken {
 
 /** Prefixo para reconhecer o token num log ou num vazamento. */
 const TOKEN_PREFIX = "pfw_";
+const AGENT_TOKEN_PREFIX = "pfa_";
+const AGENT_NAME = "Rotina do Claude";
 /** A renovação do prazo só grava uma vez por hora — não a cada chamada do relógio. */
 const TOUCH_INTERVAL_MS = 3_600_000;
 
@@ -116,6 +119,7 @@ export class DevicePairingUseCase {
     const device: Device = {
       id: this.ids.generate(),
       planId: pairing.planId,
+      kind: DeviceKind.WATCH,
       name: pairing.deviceName,
       tokenHash: this.secrets.hash(token),
       createdAt: now,
@@ -129,11 +133,47 @@ export class DevicePairingUseCase {
     return ok({ token, deviceId: device.id });
   }
 
-  /** Resolve o dispositivo pelo token e renova o prazo de 90 dias. */
-  async authenticate(token: string): Promise<Result<Device>> {
+  /**
+   * Token da rotina mensal, gerado por quem está logado — não há relógio para
+   * mostrar código, então o pareamento é você copiar o token para o ambiente
+   * da rotina. Só um vale por vez: gerar outro revoga o anterior, que é o que
+   * você quer quando acha que o antigo vazou.
+   */
+  async issueAgentToken(planId: string): Promise<IssuedToken> {
+    const now = this.clock.now();
+
+    const current = await this.devices.listByPlan(planId);
+    for (const device of current) {
+      if (device.kind === DeviceKind.AGENT && device.revokedAt === null) {
+        await this.devices.save({ ...device, revokedAt: now });
+      }
+    }
+
+    const token = `${AGENT_TOKEN_PREFIX}${this.secrets.token()}`;
+    const device: Device = {
+      id: this.ids.generate(),
+      planId,
+      kind: DeviceKind.AGENT,
+      name: AGENT_NAME,
+      tokenHash: this.secrets.hash(token),
+      createdAt: now,
+      lastUsedAt: now,
+      expiresAt: deviceExpiry(now),
+      revokedAt: null,
+    };
+    await this.devices.save(device);
+
+    return { token, deviceId: device.id };
+  }
+
+  /**
+   * Resolve o dispositivo pelo token e renova o prazo de 90 dias. O tipo tem de
+   * bater: o token da rotina não abre as rotas do relógio, nem o contrário.
+   */
+  async authenticate(token: string, kind: DeviceKind): Promise<Result<Device>> {
     const now = this.clock.now();
     const device = await this.devices.findByTokenHash(this.secrets.hash(token));
-    if (!device || !isDeviceActive(device, now)) {
+    if (!device || device.kind !== kind || !isDeviceActive(device, now)) {
       return err(new DomainError("DEVICE_UNAUTHORIZED", "Relógio não pareado. Pareie de novo."));
     }
 
