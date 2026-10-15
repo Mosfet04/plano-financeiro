@@ -42,7 +42,9 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar userName={userName} onSignOut={() => void signOutAction()} />
 
-        <main className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 pb-24 md:px-6 md:pb-6">
+        {/* O respiro de baixo soma a área do gesto do Android: no app instalado
+            a barra inferior cresce com ela, e o último card sumia atrás. */}
+        <main className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-6 md:pb-6">
           <div className="mx-auto w-full max-w-5xl">{children}</div>
         </main>
       </div>

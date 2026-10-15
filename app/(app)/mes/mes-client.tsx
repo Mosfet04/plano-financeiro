@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Lock,
   RotateCcw,
-  Trash2,
   Undo2,
   Watch,
 } from "lucide-react";
@@ -22,6 +21,7 @@ import { TurnoverBanner } from "@/components/mes/turnover-banner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDeleteButton } from "@/components/ui/confirm-delete-button";
 import { Meter } from "@/components/ui/meter";
 import { Stat } from "@/components/ui/stat";
 import { formatBRL, type Cents } from "@/core/domain/shared/money";
@@ -185,7 +185,10 @@ export function MesClient({ data }: { data: MesData }) {
         )}
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
+      {/* `grid-cols-1` e não o padrão: a coluna implícita cresce até o texto
+          mais largo sem quebra (os nomes truncados), e no celular o card
+          passava da borda direita da tela. */}
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Onde você pode gastar</CardTitle>
@@ -285,7 +288,7 @@ export function MesClient({ data }: { data: MesData }) {
               >
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-sm font-semibold">{transaction.description}</span>
-                  <span className="text-fg-muted flex items-center gap-1.5 text-xs">
+                  <span className="text-fg-muted flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
                     {new Date(`${transaction.date}T12:00:00Z`).toLocaleDateString("pt-BR", {
                       day: "2-digit",
                       month: "2-digit",
@@ -297,7 +300,9 @@ export function MesClient({ data }: { data: MesData }) {
                         title="Trocar a fonte"
                         onClick={() => handleToggleSource(transaction)}
                         disabled={pendingId === transaction.id}
-                        className="disabled:opacity-40"
+                        // O selo tem 20px de altura; a área invisível em volta
+                        // leva o toque para perto dos 44px sem mexer no layout.
+                        className="relative after:absolute after:-inset-x-1 after:-inset-y-3 after:content-[''] disabled:opacity-40"
                       >
                         <Badge
                           tone={transaction.paymentMethod === "MEAL_CARD" ? "brand" : "neutral"}
@@ -324,15 +329,11 @@ export function MesClient({ data }: { data: MesData }) {
                   {transaction.kind === "EXTRA_INCOME" ? "+" : "−"}
                   {money(transaction.amount)}
                 </span>
-                <button
-                  type="button"
-                  aria-label={`Apagar ${transaction.description}`}
-                  onClick={() => handleDelete(transaction.id)}
+                <ConfirmDeleteButton
+                  label={`Apagar ${transaction.description}`}
+                  onConfirm={() => handleDelete(transaction.id)}
                   disabled={pendingId === transaction.id}
-                  className="rounded-control text-fg-muted hover:bg-danger-bg hover:text-danger grid size-9 shrink-0 place-items-center disabled:opacity-40"
-                >
-                  <Trash2 className="size-4" />
-                </button>
+                />
               </div>
             ))
           )}
@@ -372,14 +373,17 @@ function Line({ label, value, strong }: { label: string; value: number; strong?:
   );
 }
 
-const longMonth = (month: YearMonth) =>
-  new Date(`${month}-15T12:00:00Z`).toLocaleDateString("pt-BR", {
+/** "Outubro de 2026" — o `capitalize` do CSS fazia "Outubro De 2026". */
+const longMonth = (month: YearMonth) => {
+  const text = new Date(`${month}-15T12:00:00Z`).toLocaleDateString("pt-BR", {
     month: "long",
     year: "numeric",
   });
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
 
 const navButton =
-  "rounded-control text-fg-muted hover:bg-surface-hover hover:text-fg grid size-10 place-items-center";
+  "rounded-control text-fg-muted hover:bg-surface-hover hover:text-fg active:bg-surface-hover grid size-11 place-items-center";
 
 /** Voltar a um mês que passou é como se lança o que ficou para trás e se faz a virada dele. */
 function MonthNav({ data }: { data: MesData }) {
@@ -394,9 +398,9 @@ function MonthNav({ data }: { data: MesData }) {
           <ChevronLeft className="size-5" />
         </Link>
       ) : (
-        <span className="size-10" />
+        <span className="size-11" />
       )}
-      <span className="text-base font-semibold capitalize">{longMonth(data.month)}</span>
+      <span className="text-base font-semibold">{longMonth(data.month)}</span>
       {data.nextMonth ? (
         <Link
           href={`/mes?mes=${data.nextMonth}`}
@@ -406,7 +410,7 @@ function MonthNav({ data }: { data: MesData }) {
           <ChevronRight className="size-5" />
         </Link>
       ) : (
-        <span className="size-10" />
+        <span className="size-11" />
       )}
     </nav>
   );
@@ -445,7 +449,7 @@ function SettleBar({ data }: { data: MesData }) {
     return (
       <div className="rounded-card bg-surface-subtle flex flex-wrap items-center gap-3 border border-[var(--stroke)] p-4">
         <Lock className="text-fg-muted size-5 shrink-0" />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 basis-52 flex-col gap-0.5">
           <p className="text-sm font-semibold">{formatMonth(data.month)} está fechado</p>
           <p className="text-fg-muted text-xs">
             Congelado em {money(data.settled.leftover)} de sobra contra{" "}
@@ -454,15 +458,24 @@ function SettleBar({ data }: { data: MesData }) {
             deste mês. Apareceu um lançamento atrasado? Lance e refaça a virada.
           </p>
         </div>
-        <div className="flex shrink-0 gap-1">
+        <div className="flex w-full gap-2 sm:w-auto sm:shrink-0">
           <Link
             href={`/mes/virada?mes=${data.month}`}
-            className={buttonVariants({ variant: "subtle", size: "sm" })}
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              "flex-1 sm:flex-none"
+            )}
           >
             <RotateCcw className="size-4" />
             Refazer
           </Link>
-          <Button variant="subtle" size="sm" disabled={pending} onClick={reopen}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="flex-1 sm:flex-none"
+            disabled={pending}
+            onClick={reopen}
+          >
             <Undo2 className="size-4" />
             Reabrir
           </Button>
@@ -486,7 +499,7 @@ function SettleBar({ data }: { data: MesData }) {
     return (
       <div className="rounded-card bg-warning-bg flex flex-wrap items-center gap-3 border border-[var(--warning)] p-4">
         <AlertTriangle className="text-warning size-5 shrink-0" />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 basis-52 flex-col gap-0.5">
           <p className="text-sm font-semibold">
             Cadastre onde seu dinheiro está antes de fechar {formatMonth(data.month)}
           </p>
@@ -502,7 +515,7 @@ function SettleBar({ data }: { data: MesData }) {
   return (
     <div className="rounded-card bg-surface-subtle flex flex-wrap items-center gap-3 border border-[var(--stroke)] p-4">
       <CalendarCheck className="text-brand size-5 shrink-0" />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 basis-52 flex-col gap-0.5">
         <p className="text-sm font-semibold">
           {formatMonth(data.month)} {data.today === data.lastDay ? "termina hoje" : "terminou"} e
           ainda está aberto
@@ -514,7 +527,7 @@ function SettleBar({ data }: { data: MesData }) {
       </div>
       <Link
         href={`/mes/virada?mes=${data.month}`}
-        className={buttonVariants({ variant: "primary", size: "sm" })}
+        className={cn(buttonVariants({ variant: "primary", size: "sm" }), "w-full sm:w-auto")}
       >
         Fazer a virada
       </Link>
@@ -534,22 +547,30 @@ function HistoryCard({ history }: { history: MesData["history"] }) {
           Cada mês fechado, com a sobra que aconteceu contra a que o plano esperava na época.
         </p>
       </CardHeader>
-      <CardContent className="flex flex-col gap-1.5 text-sm">
+      {/* Quatro colunas não cabem nos ~300px do celular: lá cada mês vira
+          duas linhas — mês e folga em cima, sobra e caixa embaixo. */}
+      <CardContent className="flex flex-col gap-3 text-sm sm:gap-1.5">
         {history.map((entry) => {
           const slack = entry.leftover - entry.planTarget;
           return (
-            <div key={entry.month} className="flex items-baseline justify-between gap-3">
-              <span className="text-fg-muted w-20 shrink-0">
+            <div
+              key={entry.month}
+              className="grid grid-cols-[1fr_auto] items-baseline gap-x-3 gap-y-0.5 sm:grid-cols-[5rem_auto_1fr_auto]"
+            >
+              <span className="text-fg-muted font-semibold sm:font-normal">
                 {formatMonth(entry.month as YearMonth)}
               </span>
-              <span className="tabular text-fg-muted shrink-0 text-xs">
+              <span className="tabular text-fg-muted order-3 col-span-2 text-xs sm:order-none sm:col-span-1">
                 caixa {money(entry.cash)}
               </span>
-              <span className="tabular flex-1 text-right">
+              <span className="tabular order-2 col-span-2 sm:order-none sm:col-span-1 sm:text-right">
                 {money(entry.leftover)}{" "}
                 <span className="text-fg-muted text-xs">/ {money(entry.planTarget)}</span>
               </span>
-              <Badge tone={slack >= 0 ? "success" : "danger"}>
+              <Badge
+                tone={slack >= 0 ? "success" : "danger"}
+                className="tabular order-1 justify-self-end whitespace-nowrap sm:order-none"
+              >
                 {slack >= 0 ? "+" : ""}
                 {money(slack)}
               </Badge>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { deleteGoal, saveGoal } from "@/app/actions/goal.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDeleteButton } from "@/components/ui/confirm-delete-button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { Stat } from "@/components/ui/stat";
@@ -116,13 +117,22 @@ export function MetasClient({
         </CardHeader>
         <CardContent className="flex flex-col gap-2 px-2">
           {goals.map((goal) => (
-            <div
-              key={goal.id}
-              className="rounded-control hover:bg-surface-hover flex items-start gap-3 px-2 py-2.5"
-            >
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold">{goal.name}</span>
+            <div key={goal.id} className="flex items-start gap-1">
+              {/* A linha inteira edita: no celular é um alvo grande, e o lápis
+                  de 36px ao lado do valor espremia o nome numa coluna estreita. */}
+              <button
+                type="button"
+                aria-label={`Editar ${goal.name}`}
+                onClick={() => setEditing(goal)}
+                className="rounded-control hover:bg-surface-hover active:bg-surface-hover flex min-w-0 flex-1 flex-col gap-1 px-2 py-2.5 text-left"
+              >
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 text-sm font-semibold">{goal.name}</span>
+                  <span className="tabular shrink-0 text-sm font-semibold">
+                    {formatBRL(goal.amount as Cents)}
+                  </span>
+                </span>
+                <span className="flex flex-wrap items-center gap-2">
                   {goal.targetMonth ? (
                     <Badge tone="brand">{formatMonth(goal.targetMonth as YearMonth)}</Badge>
                   ) : (
@@ -133,37 +143,22 @@ export function MetasClient({
                       {STATUS_LABELS[goal.status]}
                     </Badge>
                   ) : null}
-                </div>
+                  <Pencil className="text-fg-muted ml-auto size-3.5" aria-hidden />
+                </span>
                 {goal.fundingSource ? (
                   <span className="text-fg-muted text-xs">Sai de: {goal.fundingSource}</span>
                 ) : null}
                 {goal.note ? (
                   <span className="text-fg-muted text-xs leading-snug">{goal.note}</span>
                 ) : null}
-              </div>
+              </button>
 
-              <span className="tabular shrink-0 text-sm font-semibold">
-                {formatBRL(goal.amount as Cents)}
-              </span>
-
-              <div className="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  aria-label={`Editar ${goal.name}`}
-                  onClick={() => setEditing(goal)}
-                  className="rounded-control text-fg-muted hover:bg-surface-hover hover:text-fg grid size-9 place-items-center"
-                >
-                  <Pencil className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remover ${goal.name}`}
-                  onClick={() => handleDelete(goal.id, goal.name)}
+              <div className="pt-1">
+                <ConfirmDeleteButton
+                  label={`Remover ${goal.name}`}
+                  onConfirm={() => handleDelete(goal.id, goal.name)}
                   disabled={pending}
-                  className="rounded-control text-fg-muted hover:bg-danger-bg hover:text-danger grid size-9 place-items-center disabled:opacity-40"
-                >
-                  <Trash2 className="size-4" />
-                </button>
+                />
               </div>
             </div>
           ))}

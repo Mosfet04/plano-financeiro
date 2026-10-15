@@ -122,7 +122,7 @@ export default async function ResumoPage() {
         />
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

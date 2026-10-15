@@ -29,7 +29,7 @@ export function TopBar({ userName, onSignOut }: { userName: string; onSignOut: (
         type="button"
         onClick={() => setTheme(isDark ? "light" : "dark")}
         aria-label={isDark ? "Usar tema claro" : "Usar tema escuro"}
-        className="rounded-control text-fg-muted hover:bg-surface-hover grid size-9 place-items-center"
+        className="rounded-control text-fg-muted hover:bg-surface-hover active:bg-surface-hover grid size-11 place-items-center md:size-9"
       >
         {isDark ? <Sun className="size-5" /> : <Moon className="size-5" />}
       </button>
@@ -37,7 +37,7 @@ export function TopBar({ userName, onSignOut }: { userName: string; onSignOut: (
       <Menu.Root>
         <Menu.Trigger
           aria-label="Mais opções"
-          className="rounded-control text-fg-muted hover:bg-surface-hover grid size-9 place-items-center"
+          className="rounded-control text-fg-muted hover:bg-surface-hover active:bg-surface-hover grid size-11 place-items-center md:size-9"
         >
           <MoreVertical className="size-5" />
         </Menu.Trigger>

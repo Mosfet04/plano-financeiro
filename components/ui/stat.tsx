@@ -29,7 +29,11 @@ export function Stat({
       <span className="text-fg-muted text-xs font-semibold">{label}</span>
       <span
         className={cn(
-          "tabular text-2xl leading-tight font-semibold",
+          // Em dois cards por linha num celular de 360px sobram ~128px para o
+          // número. "R$ 12.345,67" em 24px não cabe, e o "-" quebrava sozinho
+          // numa linha; aqui o tamanho desce com o comprimento e nunca quebra.
+          "tabular leading-tight font-semibold whitespace-nowrap sm:text-2xl",
+          value.length <= 12 ? "text-xl" : value.length <= 14 ? "text-lg" : "text-base",
           tone === "positive" && "text-success",
           tone === "negative" && "text-danger"
         )}
