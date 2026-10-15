@@ -13,7 +13,9 @@ import {
   type YearMonth,
 } from "@/core/domain/shared/month";
 import { dailyAllowance, type DailyAllowance } from "@/core/domain/spending/daily-allowance";
+import type { PendingGoal } from "@/core/domain/goal/goal.entity";
 import {
+  goalSpending,
   moveMealCardOverflow,
   spendingByDay,
   type SpendingBySource,
@@ -58,7 +60,15 @@ export interface CloseMonthOutput {
   readonly otherFixed: Cents;
   readonly extraIncome: Cents;
   readonly variableSpent: Cents;
+  /** Lançado como meta no mês. */
   readonly goalSpent: Cents;
+  /**
+   * O que as metas tiram da sobra: o previsto das metas do mês ainda não pagas
+   * conta como já saído (`goalSpending`).
+   */
+  readonly goalCommitted: Cents;
+  /** Metas do mês ainda planejadas com valor por lançar. */
+  readonly pendingGoals: readonly PendingGoal[];
   /** O que estourou do vale-refeição e saiu do bolso. */
   readonly mealCardOverflow: Cents;
   readonly leftover: Cents;
@@ -160,7 +170,7 @@ export class CloseMonthUseCase {
     const variableSpent = spentBy(
       (t) => t.kind === TransactionKind.EXPENSE && t.paymentMethod === PaymentMethod.CASH
     );
-    const goalSpent = spentBy((t) => t.kind === TransactionKind.GOAL);
+    const goals = goalSpending(entries, snapshot.goals, input.month);
 
     const leftover = cents(
       expected.income -
@@ -168,7 +178,7 @@ export class CloseMonthUseCase {
         expected.otherFixed +
         extraIncome -
         variableSpent -
-        goalSpent -
+        goals.committed -
         mealCardOverflow
     );
 
@@ -208,7 +218,9 @@ export class CloseMonthUseCase {
       otherFixed: expected.otherFixed,
       extraIncome,
       variableSpent,
-      goalSpent,
+      goalSpent: goals.launched,
+      goalCommitted: goals.committed,
+      pendingGoals: goals.pending,
       mealCardOverflow,
       leftover,
       planTarget,

@@ -89,6 +89,7 @@ export default async function MesPage({
     extraIncome: closing.extraIncome,
     variableSpent: closing.variableSpent,
     goalSpent: closing.goalSpent,
+    goalCommitted: closing.goalCommitted,
     mealCardOverflow: closing.mealCardOverflow,
     leftover: closing.leftover,
     planTarget: closing.planTarget,

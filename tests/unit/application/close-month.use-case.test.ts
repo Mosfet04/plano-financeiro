@@ -195,12 +195,9 @@ describe("CloseMonthUseCase", () => {
       const { monthlyTopUpToFixHole } = projectPlan(
         buildProjectionInput(snapshotFrom(seeded), `${month}-01`, DEFAULT_HORIZON_MONTHS)
       );
-      // A folga ainda conta a meta prevista e não lançada (o ITBI de dezembro);
-      // o Dinheiro já a tirou como "gasto que vai entrar".
-      const goalsDue = seeded.goals
-        .filter((goal) => goal.targetMonth === month)
-        .reduce((sum, goal) => sum + goal.amount, 0);
-      expect(result.value.slack).toBe(variable + goalsDue - monthlyTopUpToFixHole);
+      // A meta prevista e não lançada (o ITBI de dezembro) já saiu da sobra, como
+      // já sai do Dinheiro: sem lançamento, folga e Dinheiro do mês são o mesmo.
+      expect(result.value.slack).toBe(variable - monthlyTopUpToFixHole);
       expect(result.value.allowance.cash.monthRemaining).toBe(variable - monthlyTopUpToFixHole);
     }
   );
@@ -250,6 +247,56 @@ describe("CloseMonthUseCase", () => {
 
     expect(outubro.leftover).not.toBe(novembro.leftover);
     expect(result.value.planTarget).toBe(outubro.leftover);
+  });
+
+  describe("metas do mês", () => {
+    const DEZEMBRO = "2026-12" as YearMonth;
+
+    async function closeDecember(
+      transactions: Transaction[],
+      status: "PLANNED" | "DONE" = "PLANNED"
+    ) {
+      const seeded = seed();
+      const itbi = seeded.goals.find((goal) => goal.targetMonth === DEZEMBRO)!;
+      const withStatus = {
+        ...seeded,
+        goals: seeded.goals.map((goal) => (goal.id === itbi.id ? { ...goal, status } : goal)),
+      };
+      const { useCase } = build(
+        transactions.map((t) => ({ ...t, goalId: t.goalId ?? itbi.id, date: "2026-12-10" })),
+        withStatus,
+        "2026-12-15"
+      );
+      const result = await useCase.execute({ planId: "plan-1", month: DEZEMBRO });
+      if (!result.ok) throw result.error;
+      return { closing: result.value, itbi };
+    }
+
+    /** A folga fantasma: o ITBI ainda não pago aparecia como sobra. */
+    it("pagar parte da meta não muda a sobra: o previsto já tinha saído", async () => {
+      const { closing: before, itbi } = await closeDecember([]);
+      const { closing: after } = await closeDecember([
+        expense({ amount: 5_000, kind: "GOAL", categoryId: null }),
+      ]);
+
+      expect(after.leftover).toBe(before.leftover);
+      expect(after.goalSpent).toBe(reais(5_000));
+      expect(after.goalCommitted).toBe(itbi.amount);
+      expect(after.pendingGoals).toEqual([
+        expect.objectContaining({ launched: reais(5_000), remaining: itbi.amount - reais(5_000) }),
+      ]);
+    });
+
+    /** A regressão do vermelho: concluir o ITBI tirava R$ 16,7 mil da meta do mês. */
+    it("concluir a meta não mexe na meta do mês, e o que ficou abaixo do previsto é folga", async () => {
+      const paid = [expense({ amount: 16_000, kind: "GOAL", categoryId: null })];
+      const { closing: planned } = await closeDecember(paid, "PLANNED");
+      const { closing: done } = await closeDecember(paid, "DONE");
+
+      expect(done.planTarget).toBe(planned.planTarget);
+      expect(done.slack).toBe(planned.slack + reais(701.76));
+      expect(done.pendingGoals).toEqual([]);
+    });
   });
 
   it("plano inexistente devolve erro em vez de estourar", async () => {

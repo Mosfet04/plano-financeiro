@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { Goal } from "@/core/domain/goal/goal.entity";
 import { reais } from "@/core/domain/shared/money";
 import type { YearMonth } from "@/core/domain/shared/month";
-import { moveMealCardOverflow, spendingByDay } from "@/core/domain/spending/month-ledger";
+import {
+  goalSpending,
+  moveMealCardOverflow,
+  spendingByDay,
+} from "@/core/domain/spending/month-ledger";
 import type { Transaction } from "@/core/domain/transaction/transaction.entity";
 
 const OUTUBRO = "2026-10" as YearMonth;
@@ -117,5 +121,57 @@ describe("moveMealCardOverflow", () => {
     );
     expect(result.mealCard).toEqual({ beforeToday: reais(900), today: reais(0) });
     expect(result.cash).toEqual({ beforeToday: reais(50), today: reais(40) });
+  });
+});
+
+describe("goalSpending", () => {
+  it("meta do mês ainda não paga já sai inteira da sobra", () => {
+    const result = goalSpending(
+      [tx({ amount: 175, kind: "GOAL", goalId: "itbi" })],
+      [goal({ amount: 18_886.2 })],
+      OUTUBRO
+    );
+
+    expect(result.launched).toBe(reais(175));
+    expect(result.committed).toBe(reais(18_886.2));
+    expect(result.pending).toEqual([
+      expect.objectContaining({ launched: reais(175), remaining: reais(18_711.2) }),
+    ]);
+  });
+
+  it("pagar mais que o previsto conta o que foi pago", () => {
+    const result = goalSpending(
+      [tx({ amount: 20_000, kind: "GOAL", goalId: "itbi" })],
+      [goal({ amount: 18_886.2 })],
+      OUTUBRO
+    );
+    expect(result.committed).toBe(reais(20_000));
+    expect(result.pending).toEqual([]);
+  });
+
+  it("concluída conta o que foi pago; sem lançamento, o previsto", () => {
+    const paid = goalSpending(
+      [tx({ amount: 15_000, kind: "GOAL", goalId: "itbi" })],
+      [goal({ amount: 18_886.2, status: "DONE" })],
+      OUTUBRO
+    );
+    expect(paid.committed).toBe(reais(15_000));
+    expect(paid.pending).toEqual([]);
+
+    const unlaunched = goalSpending([], [goal({ amount: 18_886.2, status: "DONE" })], OUTUBRO);
+    expect(unlaunched.committed).toBe(reais(18_886.2));
+  });
+
+  it("lançamento de meta de outro mês sai inteiro; cancelada e de outro mês não comprometem", () => {
+    const result = goalSpending(
+      [tx({ amount: 500, kind: "GOAL", goalId: "mudanca" })],
+      [
+        goal({ id: "mudanca", amount: 3_425.89, targetMonth: "2026-11" as YearMonth }),
+        goal({ id: "pousada", amount: 3_200, status: "CANCELLED" }),
+      ],
+      OUTUBRO
+    );
+    expect(result.committed).toBe(reais(500));
+    expect(result.pending).toEqual([]);
   });
 });

@@ -71,6 +71,7 @@ export interface MesData {
   extraIncome: number;
   variableSpent: number;
   goalSpent: number;
+  goalCommitted: number;
   mealCardOverflow: number;
   leftover: number;
   planTarget: number;
@@ -223,7 +224,18 @@ export function MesClient({ data }: { data: MesData }) {
               <Line label="Moradia e parcela" value={-data.housing} />
               <Line label="Contas fixas" value={-data.otherFixed} />
               <Line label="Gastos variáveis" value={-data.variableSpent} />
-              {data.goalSpent > 0 ? <Line label="Metas" value={-data.goalSpent} /> : null}
+              {data.goalCommitted > 0 ? (
+                <>
+                  <Line label="Metas" value={-data.goalCommitted} />
+                  {data.goalCommitted > data.goalSpent ? (
+                    // O previsto ainda não pago já sai da sobra: é dinheiro comprometido.
+                    <p className="text-fg-muted -mt-1 text-right text-xs">
+                      {money(data.goalSpent)} lançado · {money(data.goalCommitted - data.goalSpent)}{" "}
+                      ainda a pagar
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
               {data.mealCardOverflow > 0 ? (
                 <Line label="Estourou o VA" value={-data.mealCardOverflow} />
               ) : null}

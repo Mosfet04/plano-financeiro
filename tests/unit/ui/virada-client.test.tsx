@@ -15,6 +15,11 @@ vi.mock("@/app/actions/closing.actions", () => ({
   settleMonth: (input: unknown) => settleMonth(input),
 }));
 
+const resolveGoalAtTurnover = vi.fn();
+vi.mock("@/app/actions/goal.actions", () => ({
+  resolveGoalAtTurnover: (input: unknown) => resolveGoalAtTurnover(input),
+}));
+
 const data: ViradaData = {
   month: "2026-09" as ViradaData["month"],
   checkedOn: "2026-10-01",
@@ -27,6 +32,7 @@ const data: ViradaData = {
     otherFixed: 63_225,
     variableSpent: 70_233,
     goalSpent: 0,
+    goalCommitted: 0,
     mealCardOverflow: 0,
     leftover: 378_673,
     planTarget: 303_906,
@@ -50,6 +56,7 @@ const data: ViradaData = {
       expected: 1_068_722,
     },
   ],
+  pendingGoals: [],
   matured: [],
   fgts: null,
 };
@@ -132,5 +139,39 @@ describe("tela da virada", () => {
     await user.click(screen.getByRole("button", { name: /Não guardei nada aqui/ }));
 
     expect(screen.getByText("Bate com a sobra do mês.")).toBeInTheDocument();
+  });
+
+  it("pergunta pela meta que não saiu inteira e manda o restante para o mês seguinte", async () => {
+    resolveGoalAtTurnover.mockReset().mockResolvedValue({ ok: true });
+    const user = userEvent.setup();
+    render(
+      <ViradaClient
+        data={{
+          ...data,
+          month: "2026-10" as ViradaData["month"],
+          pendingGoals: [
+            {
+              id: "itbi",
+              name: "ITBI",
+              amount: 1_888_620,
+              launched: 1_567_014,
+              remaining: 321_606,
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText("Metas que não saíram inteiras")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Concluída por R\$\s15\.670,14/ })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /3\.216,06 fica para nov\/2026/ }));
+
+    expect(resolveGoalAtTurnover).toHaveBeenCalledWith({
+      goalId: "itbi",
+      month: "2026-10",
+      resolution: "CARRY",
+    });
   });
 });

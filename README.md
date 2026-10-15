@@ -5,8 +5,10 @@ computador: metas customizáveis, lançamento de gasto em dez segundos, projeç�
 quitação do apartamento, e uma rotina semanal que atualiza Selic/CDI/IPCA e refaz a conta.
 
 O motor reproduz a planilha inteira — os 84 meses da aba "4. Detalhe" batem dentro de R$ 2, e os
-números da capa batem exatos: quitação em **set/2030**, menor caixa de **−R$ 2.435,52** em
-dez/2026, reforço de **R$ 608,88/mês** para fechar esse buraco.
+números da capa batem exatos: quitação em **set/2030** e menor caixa de **−R$ 2.435,52** em
+dez/2026. O reforço para fechar esse buraco diverge de propósito: a planilha divide o rombo pelos 4
+meses de distância (R$ 608,88/mês), mas de ago a dez são 5 depósitos, e o reforço passava do buraco
+em uma parcela. O motor pede **R$ 487,11/mês**.
 
 ## Stack
 
@@ -243,6 +245,9 @@ Separados, cada pedaço deixava o plano errado: fechar sem atualizar os saldos f
 sumir da projeção, e atualizar sem fechar do dia 2 em diante fazia o mês corrente não depositar.
 
 A tela tem três passos — revisar o mês, conferir as caixinhas, confirmar — e só grava no último.
+No primeiro, cada meta do mês que não saiu inteira pede resposta: concluída pelo que foi lançado,
+ou o restante fica para o mês seguinte (com parte paga, a meta é dividida e o restante vira uma
+meta nova). Essa resposta grava na hora, porque muda a sobra e a meta que a virada vai congelar.
 No segundo ela mostra o saldo esperado de cada conta (anterior + rendimento estimado desde a última
 conferência) e confere se a sobra chegou: o que entrou nas caixinhas, menos o rendimento e as
 aplicações resgatadas, deveria ser a sobra do mês. Quando não é, ou faltou lançamento, ou o
@@ -299,6 +304,17 @@ plano manda guardar e o reforço**. Tudo isso vem da mesma linha da projeção q
 então se reduz a _soma das categorias − reforço + renda extra_: 13º, PLR, parcela e ITBI estão nos
 dois lados e se anulam. Lançamento de meta só conta no que passa da meta prevista no mês — o
 previsto já saiu como "gasto que vai entrar".
+
+**Sobra realizada:** as metas saem pela mesma regra (`goalSpending`). Meta do mês ainda planejada
+tira o maior entre o previsto e o lançado; concluída tira o que foi lançado (sem lançamento, o
+previsto); lançamento de meta de outro mês sai inteiro. Contar só o lançado dava uma folga fantasma
+do tamanho do ITBI até ele ser pago. Meta concluída continua na meta do mês e na projeção: o mês
+dela ainda não está no saldo conferido, e tirá-la deixava o mês vermelho no valor da meta.
+
+**Meta paga fora do mês dela vai para o mês do pagamento** ao ser lançada (`goalMovedByPayment`).
+Parada no mês antigo, o pagamento virava gasto comum no mês em que saiu e a projeção descontava a
+meta de novo no mês previsto. Não move quando a meta já tem pagamento no mês dela — aí é parcela, e
+o restante é separado na virada.
 
 Isso corrigiu o realizado do `/mes`: ele contava só o salário líquido e as contas fixas, enquanto a
 meta vinha da projeção com 13º, PLR, férias, auxílio e parcela. No plano da planilha, sem nenhum

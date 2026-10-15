@@ -1,5 +1,5 @@
 import { PaymentMethod } from "../budget/budget-category.entity";
-import { GoalStatus, type Goal } from "../goal/goal.entity";
+import { GoalStatus, type Goal, type PendingGoal } from "../goal/goal.entity";
 import { addCents, cents, maxCents, minCents, subCents, ZERO, type Cents } from "../shared/money";
 import type { YearMonth } from "../shared/month";
 import { TransactionKind, type Transaction } from "../transaction/transaction.entity";
@@ -70,6 +70,65 @@ export function spendingByDay(
   }
 
   return { cash, mealCard };
+}
+
+export interface GoalSpending {
+  /** Tudo que foi lançado como meta no mês. */
+  readonly launched: Cents;
+  /** O que as metas tiram da sobra realizada. */
+  readonly committed: Cents;
+  /** Metas do mês ainda planejadas com valor por lançar. */
+  readonly pending: readonly PendingGoal[];
+}
+
+/**
+ * Quanto as metas tiram da sobra realizada do mês — a mesma regra do Dinheiro.
+ *
+ * - Meta do mês planejada: o maior entre o previsto e o lançado. O previsto já
+ *   está comprometido; contar só o lançado dava folga de R$ 19 mil enquanto o
+ *   ITBI não saía, e ela sumia no dia do pagamento.
+ * - Meta do mês concluída: o lançado, que é o que custou. Sem lançamento, o
+ *   previsto — concluir sem lançar não pode virar folga.
+ * - Lançamento de meta de outro mês, ou sem meta: inteiro, é dinheiro que saiu.
+ */
+export function goalSpending(
+  transactions: readonly Transaction[],
+  goals: readonly Goal[],
+  month: YearMonth
+): GoalSpending {
+  const ofMonth = goals.filter(
+    (goal) => goal.targetMonth === month && goal.status !== GoalStatus.CANCELLED
+  );
+  const ofMonthIds = new Set(ofMonth.map((goal) => goal.id));
+
+  const paidBy = new Map<string, number>();
+  let launched = 0;
+  let outsideMonth = 0;
+  for (const transaction of transactions) {
+    if (transaction.kind !== TransactionKind.GOAL) continue;
+    launched += transaction.amount;
+    if (transaction.goalId && ofMonthIds.has(transaction.goalId)) {
+      paidBy.set(transaction.goalId, (paidBy.get(transaction.goalId) ?? 0) + transaction.amount);
+    } else {
+      outsideMonth += transaction.amount;
+    }
+  }
+
+  let committed = outsideMonth;
+  const pending: PendingGoal[] = [];
+  for (const goal of ofMonth) {
+    const paid = paidBy.get(goal.id) ?? 0;
+    if (goal.status === GoalStatus.DONE) {
+      committed += paid > 0 ? paid : goal.amount;
+      continue;
+    }
+    committed += Math.max(goal.amount, paid);
+    if (paid < goal.amount) {
+      pending.push({ goal, launched: cents(paid), remaining: cents(goal.amount - paid) });
+    }
+  }
+
+  return { launched: cents(launched), committed: cents(committed), pending };
 }
 
 /**

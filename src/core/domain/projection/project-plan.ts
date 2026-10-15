@@ -179,10 +179,18 @@ function sumVariableBudget(categories: readonly BudgetCategory[]): Cents {
   return addCents(...categories.filter((c) => c.active).map((c) => c.monthlyBudget));
 }
 
+/**
+ * Metas que saem no mês. Concluída continua contando: o mês dela ainda está na
+ * projeção, então o saldo conferido não contém o pagamento. Tirá-la fazia a
+ * meta do mês subir o valor inteiro da meta enquanto os lançamentos dela
+ * continuavam saindo da sobra — concluir o ITBI deixava outubro R$ 19 mil no
+ * vermelho. Meta paga em outro mês é levada para o mês do pagamento quando é
+ * lançada (`goalMovedByPayment`), e é isso que mantém esta soma honesta.
+ */
 function sumGoalsDue(goals: readonly Goal[], month: YearMonth): Cents {
   return addCents(
     ...goals
-      .filter((g) => g.status === GoalStatus.PLANNED && g.targetMonth === month)
+      .filter((g) => g.status !== GoalStatus.CANCELLED && g.targetMonth === month)
       .map((g) => g.amount)
   );
 }
@@ -639,8 +647,15 @@ export function projectPlan(input: ProjectionInput): ProjectionSummary {
   );
   const minCash = minCashRow?.payoffCash ?? ZERO;
 
-  // Reforço para fechar o buraco: o rombo dividido pelos meses até ele acontecer.
-  const monthsUntilHole = minCashRow ? Math.max(1, monthsBetween(startMonth, minCashRow.month)) : 1;
+  // Reforço para fechar o buraco: o rombo dividido pelos meses que ainda
+  // depositam até ele, contando o próprio mês do buraco — a sobra dele entra no
+  // caixa antes de o caixa ser medido. A planilha dividia pela distância entre
+  // os meses (4 de ago a dez/2026, quando são 5 depósitos) e pedia um reforço a
+  // mais. O primeiro mês sai da conta quando não deposita.
+  const depositingMonths = minCashRow
+    ? monthsBetween(startMonth, minCashRow.month) + 1 - (firstMonthPartiallyLived ? 1 : 0)
+    : 1;
+  const monthsUntilHole = Math.max(1, depositingMonths);
   const monthlyTopUpToFixHole = minCash < 0 ? cents(-minCash / monthsUntilHole) : ZERO;
 
   const typicalLeftoverAfterMove = firstWithInstallment

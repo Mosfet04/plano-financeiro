@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { PaymentMethod } from "@/core/domain/budget/budget-category.entity";
+import { goalMovedByPayment, type Goal } from "@/core/domain/goal/goal.entity";
 import { reais } from "@/core/domain/shared/money";
 import { monthOfISODate } from "@/core/domain/shared/month";
 import { TransactionKind } from "@/core/domain/transaction/transaction.entity";
@@ -44,8 +45,9 @@ export async function createTransaction(input: z.input<typeof createSchema>) {
     const category = await container.repos.categories.findById(data.categoryId);
     if (!category || category.planId !== planId) return invalidInput;
   }
+  let goal: Goal | null = null;
   if (data.goalId) {
-    const goal = await container.repos.goals.findById(data.goalId);
+    goal = await container.repos.goals.findById(data.goalId);
     if (!goal || goal.planId !== planId) return invalidInput;
   }
 
@@ -63,9 +65,30 @@ export async function createTransaction(input: z.input<typeof createSchema>) {
     createdAt: container.clock.now(),
   });
 
+  // Meta paga fora do mês dela vai para o mês do pagamento — senão o pagamento
+  // vira gasto comum aqui e a projeção desconta a meta de novo lá.
+  const month = monthOfISODate(data.date);
+  let movedGoal: { name: string; month: string } | null = null;
+  if (goal && data.kind === TransactionKind.GOAL) {
+    const targetMonth = goal.targetMonth;
+    const paidInItsMonth =
+      targetMonth !== null &&
+      targetMonth !== month &&
+      (await container.repos.transactions.listByMonth(planId, targetMonth)).some(
+        (entry) => entry.kind === TransactionKind.GOAL && entry.goalId === goal.id
+      );
+    const moved = goalMovedByPayment(goal, month, paidInItsMonth);
+    if (moved) {
+      await container.repos.goals.save(moved);
+      movedGoal = { name: moved.name, month };
+      revalidatePath("/metas");
+      revalidatePath("/projecao");
+    }
+  }
+
   revalidatePath("/mes");
   revalidatePath("/resumo");
-  return { ok: true as const, month: monthOfISODate(data.date) };
+  return { ok: true as const, month, movedGoal };
 }
 
 const deleteSchema = z.object({ id: z.string().min(1) });

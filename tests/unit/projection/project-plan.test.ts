@@ -104,8 +104,10 @@ describe("projectPlan — paridade com a planilha", () => {
     expectClose(result.leftoverFirstMonth, 3063.05, "sobra hoje");
     expectClose(result.typicalLeftoverAfterMove, 1429.01, "sobra depois da mudança");
     expectClose(result.costOfLivingAfterMove, 4925.87, "custo de vida depois da mudança");
-    // '3. Metas'!C31: o rombo de dez/2026 dividido pelos 4 meses até lá.
-    expectClose(result.monthlyTopUpToFixHole, 608.88, "reforço mensal");
+    // Diverge da planilha de propósito. '3. Metas'!C31 divide o rombo de
+    // dez/2026 pelos 4 meses de distância (R$ 608,88), mas de ago a dez são 5
+    // depósitos, e o reforço passava do buraco em uma parcela.
+    expectClose(result.monthlyTopUpToFixHole, 487.11, "reforço mensal");
   });
 
   it("enche a reserva até o alvo e só então manda para o caixa de quitação", () => {

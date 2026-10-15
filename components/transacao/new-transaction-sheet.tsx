@@ -7,6 +7,7 @@ import { createTransaction } from "@/app/actions/transaction.actions";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
+import { formatMonth, type YearMonth } from "@/core/domain/shared/month";
 import { cn } from "@/lib/utils";
 
 export interface SheetCategory {
@@ -95,7 +96,13 @@ export function NewTransactionSheet({
         return;
       }
 
-      toast.success("Lançado.");
+      if (result.movedGoal) {
+        toast.success(
+          `Lançado. ${result.movedGoal.name} passou para ${formatMonth(result.movedGoal.month as YearMonth)}, o mês do pagamento.`
+        );
+      } else {
+        toast.success("Lançado.");
+      }
       reset();
       onOpenChange(false);
     });

@@ -7,6 +7,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { previewTurnover, settleMonth } from "@/app/actions/closing.actions";
+import { resolveGoalAtTurnover } from "@/app/actions/goal.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +16,7 @@ import { formatDecimal, MoneyInput, parseDecimal } from "@/components/ui/number-
 import type { SettlementPreview } from "@/core/application/use-cases/settle-month.use-case";
 import { formatBRL, type Cents } from "@/core/domain/shared/money";
 import {
+  addMonths,
   dayOfISODate,
   endOfMonthDate,
   formatMonth,
@@ -37,11 +39,20 @@ export interface ViradaData {
     extraIncome: number;
     variableSpent: number;
     goalSpent: number;
+    goalCommitted: number;
     mealCardOverflow: number;
     leftover: number;
     planTarget: number;
     transactionCount: number;
   };
+  /** Metas do mês ainda planejadas com valor por lançar. */
+  pendingGoals: Array<{
+    id: string;
+    name: string;
+    amount: number;
+    launched: number;
+    remaining: number;
+  }>;
   accounts: Array<{
     id: string;
     name: string;
@@ -243,7 +254,7 @@ function ReviewStep({ data, onNext }: { data: ViradaData; onNext: () => void }) 
           <Line label="Moradia e parcela" value={-summary.housing} />
           <Line label="Contas fixas" value={-summary.otherFixed} />
           <Line label="Gastos variáveis" value={-summary.variableSpent} />
-          {summary.goalSpent > 0 ? <Line label="Metas" value={-summary.goalSpent} /> : null}
+          {summary.goalCommitted > 0 ? <Line label="Metas" value={-summary.goalCommitted} /> : null}
           {summary.mealCardOverflow > 0 ? (
             <Line label="Estourou o VA" value={-summary.mealCardOverflow} />
           ) : null}
@@ -263,6 +274,8 @@ function ReviewStep({ data, onNext }: { data: ViradaData; onNext: () => void }) 
         </CardContent>
       </Card>
 
+      {data.pendingGoals.length > 0 ? <PendingGoalsCard data={data} /> : null}
+
       <p className="text-fg-muted text-xs">
         A sobra não vai sozinha para as caixinhas: é você quem transfere. O próximo passo confere se
         ela chegou lá.
@@ -280,6 +293,70 @@ function ReviewStep({ data, onNext }: { data: ViradaData; onNext: () => void }) 
         </Button>
       </div>
     </>
+  );
+}
+
+/**
+ * Meta do mês que não foi paga inteira. Sem resposta, a sobra conta o previsto
+ * como saído — o que deixa a conferência das caixinhas sem bater quando o
+ * dinheiro ficou lá.
+ */
+function PendingGoalsCard({ data }: { data: ViradaData }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const next = formatMonth(addMonths(data.month, 1));
+
+  async function resolve(goalId: string, resolution: "DONE" | "CARRY") {
+    setBusy(goalId);
+    const result = await resolveGoalAtTurnover({ goalId, month: data.month, resolution });
+    setBusy(null);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Metas que não saíram inteiras</CardTitle>
+        <p className="text-fg-muted text-xs">
+          A sobra acima conta o previsto como já pago. Diga o que aconteceu antes de conferir as
+          caixinhas.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm">
+        {data.pendingGoals.map((goal) => (
+          <div key={goal.id} className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between gap-4">
+              <span className="font-semibold">{goal.name}</span>
+              <span className="text-fg-muted tabular text-xs">
+                {money(goal.launched)} de {money(goal.amount)}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => resolve(goal.id, "DONE")}
+              >
+                {goal.launched > 0 ? `Concluída por ${money(goal.launched)}` : "Concluída"}
+              </Button>
+              <Button
+                variant="subtle"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => resolve(goal.id, "CARRY")}
+              >
+                {money(goal.remaining)} fica para {next}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

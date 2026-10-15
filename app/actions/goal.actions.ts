@@ -3,9 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { GoalStatus } from "@/core/domain/goal/goal.entity";
+import {
+  GoalStatus,
+  PendingGoalResolution,
+  resolvePendingGoal,
+} from "@/core/domain/goal/goal.entity";
 import { reais } from "@/core/domain/shared/money";
-import type { YearMonth } from "@/core/domain/shared/month";
+import { addMonths, type YearMonth } from "@/core/domain/shared/month";
 
 import { invalidInput, resolvePlanContext, unauthorized } from "./plan-context";
 
@@ -69,6 +73,50 @@ export async function deleteGoal(input: z.input<typeof idSchema>) {
   if (!existing || existing.planId !== ctx.planId) return invalidInput;
 
   await ctx.container.repos.goals.delete(parsed.data.id);
+  revalidatePath("/metas");
+  revalidatePath("/projecao");
+  revalidatePath("/resumo");
+  return { ok: true as const };
+}
+
+const resolveSchema = z.object({
+  goalId: z.string().min(1),
+  month: monthSchema,
+  resolution: z.enum(["DONE", "CARRY"]),
+});
+
+/**
+ * Responde, na virada, por uma meta do mês que não foi paga inteira: concluída
+ * com o que foi lançado, ou o restante para o mês seguinte. Sem resposta, a
+ * sobra do mês conta o previsto como saído.
+ */
+export async function resolveGoalAtTurnover(input: z.input<typeof resolveSchema>) {
+  const ctx = await resolvePlanContext();
+  if (!ctx) return unauthorized;
+
+  const parsed = resolveSchema.safeParse(input);
+  if (!parsed.success) return invalidInput;
+
+  const { container, planId } = ctx;
+  const month = parsed.data.month as YearMonth;
+
+  // O lançado vem do servidor, não do cliente: é ele que decide o valor dividido.
+  const closing = await container.useCases.closeMonth.execute({ planId, month });
+  if (!closing.ok) return { ok: false as const, error: closing.error.message };
+
+  const pending = closing.value.pendingGoals.find((entry) => entry.goal.id === parsed.data.goalId);
+  if (!pending) return { ok: false as const, error: "Essa meta não está pendente neste mês." };
+
+  const goals = resolvePendingGoal(
+    pending,
+    parsed.data.resolution as PendingGoalResolution,
+    addMonths(month, 1),
+    container.ids.generate()
+  );
+  for (const goal of goals) await container.repos.goals.save(goal);
+
+  revalidatePath("/mes");
+  revalidatePath("/mes/virada");
   revalidatePath("/metas");
   revalidatePath("/projecao");
   revalidatePath("/resumo");
